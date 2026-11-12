@@ -1,0 +1,192 @@
+import { FormEvent, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { api, fmtQty, Line, Week, weekendLabel } from '../api';
+import { Back, Loading, Stepper } from '../ui';
+
+type ListData = { week: Week; lines: Line[]; dontBuy: string[] };
+
+export default function List() {
+  const nav = useNavigate();
+  const [data, setData] = useState<ListData | null>(null);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [one, setOne] = useState({ name: '', qty: 1, unit: '', reason: '' });
+  const [copied, setCopied] = useState(false);
+
+  const load = () =>
+    api<ListData>('/api/list')
+      .then((d) => {
+        setData(d);
+        setNote(d.week.note);
+      })
+      .catch((e) => setError(e.message));
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (!data) return error ? <div className="screen body"><p className="error">{error}</p></div> : <Loading />;
+  const { week, lines, dontBuy } = data;
+
+  async function patch(id: number, body: Partial<{ qty: number; removed: boolean }>) {
+    setData((d) => d && { ...d, lines: d.lines.map((l) => (l.id === id ? { ...l, ...body } : l)) });
+    try {
+      await api(`/api/list/lines/${id}`, { method: 'PUT', body });
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+  async function removeOneOff(id: number) {
+    await api(`/api/list/lines/${id}`, { method: 'DELETE' });
+    load();
+  }
+  async function addOneOff(e: FormEvent) {
+    e.preventDefault();
+    if (!one.name.trim()) return setError('Enter a name for the one-off item.');
+    await api('/api/list/lines', { body: one });
+    setOne({ name: '', qty: 1, unit: '', reason: '' });
+    setAdding(false);
+    setError('');
+    load();
+  }
+  async function saveNote() {
+    if (note !== week.note) await api('/api/list/note', { method: 'PUT', body: { note } });
+  }
+  async function approve() {
+    await saveNote();
+    await api('/api/list/approve', { body: {} });
+    load();
+  }
+
+  const auto = lines.filter((l) => !l.oneOff);
+  const oneOffs = lines.filter((l) => l.oneOff);
+  const activeCount = lines.filter((l) => !l.removed).length;
+  const sent = week.status === 'sent';
+  const familyUrl = `${window.location.origin}/f/${week.shareToken}`;
+  const message = `Waheguru ji ka Khalsa, Waheguru ji ki Fateh. Here's your sewa list for ${weekendLabel(week.serviceDate)}: ${activeCount} items. Please check it before you shop: ${familyUrl}`;
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+    } catch {
+      setError('Copy failed. Press and hold the link to copy it.');
+    }
+  }
+
+  return (
+    <div className="screen">
+      <div className="header">
+        <div className="topbar">
+          <Back />
+          <span className={`tag ${sent ? 'ok' : 'low'}`} style={{ fontSize: 12, padding: '4px 10px' }}>{sent ? 'Sent' : 'Draft · due Thu'}</span>
+        </div>
+        <h1>List for {weekendLabel(week.serviceDate).replace('Sat–Sun, ', '')}</h1>
+        <p className="muted">
+          {week.countedBy ? `Counted by ${week.countedBy}` : 'Not counted yet'} · {activeCount} item{activeCount === 1 ? '' : 's'}
+        </p>
+      </div>
+      <div className="body">
+        {week.status === 'count_due' || week.status === 'counting' ? (
+          <div className="banner warn" style={{ marginTop: 16 }}>
+            Finish this week's count first. The list is drafted from it.{' '}
+            <button className="link-btn" style={{ minHeight: 0, color: 'inherit', textDecoration: 'underline' }} onClick={() => nav('/count')}>Go to count</button>
+          </div>
+        ) : null}
+
+        <p className="section">Below minimum</p>
+        {auto.length === 0 && <p className="muted" style={{ padding: '12px 0' }}>Nothing is below minimum.</p>}
+        {auto.map((l) => (
+          <div key={l.id} className={`row${l.removed ? ' dim' : ''}`}>
+            <div className="grow">
+              <span className="name">
+                {l.name}
+                {!l.removed && l.qty !== l.suggested && <span className="tag info">Edited</span>}
+              </span>
+              <span className="muted small">{l.removed ? 'Removed from this week' : `${l.reason} · suggested ${fmtQty(l.suggested)}`}</span>
+            </div>
+            {!l.removed && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <Stepper label={l.name} min={1} value={l.qty} onChange={(v) => patch(l.id, { qty: v })} />
+                <span className="muted small">{l.unit}</span>
+              </div>
+            )}
+            <button type="button" className="link-btn" style={{ fontSize: 13, color: 'var(--muted)', padding: '0 4px' }} onClick={() => patch(l.id, { removed: !l.removed })}>
+              {l.removed ? 'Undo' : 'Remove'}
+            </button>
+          </div>
+        ))}
+
+        <p className="section">One-off items</p>
+        {oneOffs.map((l) => (
+          <div key={l.id} className="row">
+            <div className="grow">
+              <span className="name">{l.name}</span>
+              <span className="muted small">{l.reason}</span>
+            </div>
+            <Stepper label={l.name} min={1} value={l.qty} onChange={(v) => patch(l.id, { qty: v })} />
+            <button type="button" className="link-btn" style={{ fontSize: 13, color: 'var(--muted)', padding: '0 4px' }} onClick={() => removeOneOff(l.id)}>Delete</button>
+          </div>
+        ))}
+        {adding ? (
+          <form onSubmit={addOneOff} className="card" style={{ marginTop: 8 }}>
+            <div className="field" style={{ marginTop: 0 }}>
+              <label htmlFor="oo-name">Item</label>
+              <input id="oo-name" className="input" value={one.name} onChange={(e) => setOne({ ...one, name: e.target.value })} placeholder="Marigold flowers" autoFocus />
+            </div>
+            <div className="grid2">
+              <div className="field">
+                <label htmlFor="oo-qty">Quantity</label>
+                <input id="oo-qty" className="input" type="number" inputMode="numeric" min={1} value={one.qty} onChange={(e) => setOne({ ...one, qty: Number(e.target.value) })} />
+              </div>
+              <div className="field">
+                <label htmlFor="oo-unit">Unit</label>
+                <input id="oo-unit" className="input" value={one.unit} onChange={(e) => setOne({ ...one, unit: e.target.value })} placeholder="boxes" />
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="oo-why">Reason (optional)</label>
+              <input id="oo-why" className="input" value={one.reason} onChange={(e) => setOne({ ...one, reason: e.target.value })} placeholder="Gurpurab decoration" />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <button className="btn">Add</button>
+              <button type="button" className="btn secondary" onClick={() => setAdding(false)}>Cancel</button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" className="link-btn" style={{ minHeight: 48 }} onClick={() => setAdding(true)}>+ Add one-off item</button>
+        )}
+
+        <p className="section">Tell the family not to buy</p>
+        {dontBuy.length ? (
+          <div className="chips">{dontBuy.map((n) => <span key={n} className="chip">{n}</span>)}</div>
+        ) : (
+          <p className="muted">Mark items as "often over-bought" in the catalog to show them here when they're fully stocked.</p>
+        )}
+
+        <div className="field" style={{ marginTop: 20 }}>
+          <label htmlFor="note">Note to family</label>
+          <textarea id="note" className="input" value={note} onChange={(e) => setNote(e.target.value)} onBlur={saveNote} placeholder="Milk: whole milk in 1-gallon jugs, please." />
+        </div>
+        {error && <p className="error">{error}</p>}
+      </div>
+
+      <div className="footer">
+        {!sent ? (
+          <>
+            <button className="btn" onClick={approve} disabled={week.status !== 'drafted' || activeCount === 0}>Approve list</button>
+            <p className="muted small center">Then share it on WhatsApp. You can still edit after sharing; the link always shows the latest list.</p>
+          </>
+        ) : (
+          <>
+            <a className="btn" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">Share on WhatsApp</a>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn secondary" onClick={copyLink}>{copied ? 'Copied' : 'Copy message'}</button>
+              <button className="btn secondary" onClick={() => nav(`/f/${week.shareToken}`)}>Family view</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
