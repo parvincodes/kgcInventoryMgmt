@@ -10,12 +10,11 @@ type Form = {
   mode: 'num' | 'lvl';
   min: string;
   target: string;
-  overBought: boolean;
   trackExpiry: boolean;
   expiryDate: string;
 };
 
-const empty: Form = { name: '', location: 'Shelves', unit: '', mode: 'num', min: '', target: '', overBought: false, trackExpiry: false, expiryDate: '' };
+const empty: Form = { name: '', location: 'Shelves', unit: '', mode: 'num', min: '', target: '', trackExpiry: false, expiryDate: '' };
 
 export default function ItemEdit() {
   const { id } = useParams();
@@ -37,7 +36,6 @@ export default function ItemEdit() {
         mode: it.mode,
         min: it.min == null ? '' : String(it.min),
         target: it.target == null ? '' : String(it.target),
-        overBought: it.overBought,
         trackExpiry: !!it.expiryDate,
         expiryDate: it.expiryDate ?? ''
       });
@@ -135,13 +133,6 @@ export default function ItemEdit() {
               <input id="exp" className="input" type="date" value={f.expiryDate} onChange={(e) => set({ expiryDate: e.target.value })} />
             </div>
           )}
-          <button type="button" className="toggle-row" onClick={() => set({ overBought: !f.overBought })}>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontWeight: 500 }}>Often over-bought</span>
-              <span className="muted small">Tell families not to buy when stocked</span>
-            </span>
-            <Switch on={f.overBought} />
-          </button>
         </div>
         {error && <p className="error">{error}</p>}
         {!isNew && (

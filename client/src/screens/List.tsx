@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, fmtQty, Line, Week, weekendLabel } from '../api';
 import { Back, Loading, Stepper } from '../ui';
 
-type ListData = { week: Week; lines: Line[]; dontBuy: string[] };
+type ListData = { week: Week; lines: Line[] };
 
 export default function List() {
   const nav = useNavigate();
@@ -26,7 +26,7 @@ export default function List() {
   }, []);
 
   if (!data) return error ? <div className="screen body"><p className="error">{error}</p></div> : <Loading />;
-  const { week, lines, dontBuy } = data;
+  const { week, lines } = data;
 
   async function patch(id: number, body: Partial<{ qty: number; removed: boolean }>) {
     setData((d) => d && { ...d, lines: d.lines.map((l) => (l.id === id ? { ...l, ...body } : l)) });
@@ -93,6 +93,12 @@ export default function List() {
             <button className="link-btn" style={{ minHeight: 0, color: 'inherit', textDecoration: 'underline' }} onClick={() => nav('/count')}>Go to count</button>
           </div>
         ) : null}
+        {week.status === 'drafted' && (
+          <div className="banner" style={{ marginTop: 16 }}>
+            Draft. This list follows the count, so changes you make there show up here.{' '}
+            <button className="link-btn" style={{ minHeight: 0, color: 'inherit', textDecoration: 'underline' }} onClick={() => nav('/count')}>Edit count</button>
+          </div>
+        )}
 
         <p className="section">Below minimum</p>
         {auto.length === 0 && <p className="muted" style={{ padding: '12px 0' }}>Nothing is below minimum.</p>}
@@ -155,13 +161,6 @@ export default function List() {
           </form>
         ) : (
           <button type="button" className="link-btn" style={{ minHeight: 48 }} onClick={() => setAdding(true)}>+ Add one-off item</button>
-        )}
-
-        <p className="section">Tell the family not to buy</p>
-        {dontBuy.length ? (
-          <div className="chips">{dontBuy.map((n) => <span key={n} className="chip">{n}</span>)}</div>
-        ) : (
-          <p className="muted">Mark items as "often over-bought" in the catalog to show them here when they're fully stocked.</p>
         )}
 
         <div className="field" style={{ marginTop: 20 }}>

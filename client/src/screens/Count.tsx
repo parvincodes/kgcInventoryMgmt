@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, expirySoon, Item, LEVELS, LOCATIONS } from '../api';
+import { api, expirySoon, Item, LEVELS, LOCATIONS, Week } from '../api';
 import { Back, Loading, Stepper } from '../ui';
 
 export default function Count() {
   const nav = useNavigate();
   const [items, setItems] = useState<Item[] | null>(null);
+  const [week, setWeek] = useState<Week | null>(null);
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState('');
   const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
-    api<{ items: Item[] }>('/api/count').then((r) => setItems(r.items)).catch((e) => setError(e.message));
+    api<{ items: Item[]; week: Week }>('/api/count')
+      .then((r) => {
+        setItems(r.items);
+        setWeek(r.week);
+      })
+      .catch((e) => setError(e.message));
   }, []);
 
   async function save(id: number, body: Record<string, unknown>, optimistic: Partial<Item>) {
@@ -37,6 +43,10 @@ export default function Count() {
 
   const done = items.filter((i) => i.counted).length;
   const low = items.filter((i) => i.belowMin).length;
+
+  // Once the list is drafted, counts stay editable and each change updates the draft.
+  const drafted = week?.status === 'drafted';
+  const sent = week?.status === 'sent';
 
   async function finish() {
     setFinishing(true);
@@ -113,8 +123,21 @@ export default function Count() {
       </div>
       {items.length > 0 && (
         <div className="footer">
-          <button className="btn" onClick={finish} disabled={finishing}>{finishing ? 'Drafting…' : `Finish and draft list (${low})`}</button>
-          <p className="muted small center">Stop anytime. You or the other reviewer can pick up where you left off.</p>
+          {drafted || sent ? (
+            <>
+              <button className="btn" onClick={() => nav('/list')}>View list</button>
+              <p className="muted small center">
+                {drafted
+                  ? 'Still a draft. Counts can still change, and the list updates with them until you send it.'
+                  : 'The list is already sent. Count changes here won’t change it.'}
+              </p>
+            </>
+          ) : (
+            <>
+              <button className="btn" onClick={finish} disabled={finishing}>{finishing ? 'Drafting…' : `Finish and draft list (${low})`}</button>
+              <p className="muted small center">Stop anytime. You or the other reviewer can pick up where you left off.</p>
+            </>
+          )}
         </div>
       )}
     </div>

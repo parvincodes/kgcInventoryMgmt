@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import type { Db } from './db.js';
 import { activeItems } from './logic.js';
 
 export type ScanResult = {
@@ -18,9 +19,9 @@ const DEMO: Omit<ScanResult, 'matchId' | 'matchName'>[] = [
   { name: 'White tub, no label', unit: 'tubs', count: 1, confidence: 'low' }
 ];
 
-function matchCatalog(name: string, location: string) {
+function matchCatalog(d: Db, name: string, location: string) {
   const n = name.trim().toLowerCase();
-  const items = activeItems();
+  const items = activeItems(d);
   const hit =
     items.find((i) => i.name.toLowerCase() === n && i.location === location) ??
     items.find((i) => i.name.toLowerCase() === n);
@@ -28,16 +29,17 @@ function matchCatalog(name: string, location: string) {
 }
 
 export async function scanPhoto(
+  d: Db,
   location: string,
   imageBase64: string,
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
 ): Promise<{ demo: boolean; results: ScanResult[] }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return { demo: true, results: DEMO.map((d) => ({ ...d, ...matchCatalog(d.name, location) })) };
+    return { demo: true, results: DEMO.map((r) => ({ ...r, ...matchCatalog(d, r.name, location) })) };
   }
 
-  const catalog = activeItems().map((i) => `${i.id}: ${i.name} (${i.location}, ${i.unit || 'level'})`);
+  const catalog = activeItems(d).map((i) => `${i.id}: ${i.name} (${i.location}, ${i.unit || 'level'})`);
   const client = new Anthropic({ apiKey });
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 
@@ -77,12 +79,12 @@ Reply with only a JSON array, no other text.`;
   if (start < 0 || end < start) throw new Error('The photo could not be read. Try again with better light.');
   const raw = JSON.parse(text.slice(start, end + 1)) as Array<Record<string, unknown>>;
 
-  const validIds = new Map(activeItems().map((i) => [i.id, i.name]));
+  const validIds = new Map(activeItems(d).map((i) => [i.id, i.name]));
   const results: ScanResult[] = raw
     .filter((r) => typeof r.name === 'string' && (r.name as string).trim())
     .map((r) => {
       const id = typeof r.matchId === 'number' && validIds.has(r.matchId) ? r.matchId : null;
-      const fallback = id == null ? matchCatalog(String(r.name), location) : null;
+      const fallback = id == null ? matchCatalog(d, String(r.name), location) : null;
       return {
         name: String(r.name).trim(),
         unit: typeof r.unit === 'string' ? r.unit : '',

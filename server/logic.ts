@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { db, Item, ListLine, Week } from './db.js';
+import { Db, Item, ListLine, Week } from './db.js';
 
 /** The weekend the reviewers are preparing for: the next Saturday after today (on a Saturday, the following one). */
 export function upcomingServiceDate(now = new Date()): string {
@@ -13,16 +13,16 @@ export function upcomingServiceDate(now = new Date()): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-export function getOrCreateWeek(serviceDate = upcomingServiceDate()): Week {
-  const found = db.prepare('SELECT * FROM weeks WHERE service_date = ?').get(serviceDate) as Week | undefined;
+export function getOrCreateWeek(d: Db, serviceDate = upcomingServiceDate()): Week {
+  const found = d.prepare('SELECT * FROM weeks WHERE service_date = ?').get(serviceDate) as Week | undefined;
   if (found) return found;
   const token = crypto.randomBytes(12).toString('base64url');
-  db.prepare('INSERT INTO weeks (service_date, share_token) VALUES (?, ?)').run(serviceDate, token);
-  return db.prepare('SELECT * FROM weeks WHERE service_date = ?').get(serviceDate) as Week;
+  d.prepare('INSERT INTO weeks (service_date, share_token) VALUES (?, ?)').run(serviceDate, token);
+  return d.prepare('SELECT * FROM weeks WHERE service_date = ?').get(serviceDate) as Week;
 }
 
-export function activeItems(): Item[] {
-  return db.prepare('SELECT * FROM items WHERE active = 1 ORDER BY location, name COLLATE NOCASE').all() as Item[];
+export function activeItems(d: Db): Item[] {
+  return d.prepare('SELECT * FROM items WHERE active = 1 ORDER BY location, name COLLATE NOCASE').all() as Item[];
 }
 
 /** Numeric items need a minimum to be checked; level items go on the list at Low or Out. */
@@ -59,24 +59,28 @@ function fmt(n: number) {
 
 export type WeekStatus = 'count_due' | 'counting' | 'drafted' | 'sent';
 
-export function weekStatus(w: Week): WeekStatus {
+export function weekStatus(d: Db, w: Week): WeekStatus {
   if (w.approved_at) return 'sent';
   if (w.count_finished_at) return 'drafted';
-  const n = (db.prepare('SELECT COUNT(*) AS n FROM count_entries WHERE week_id = ?').get(w.id) as { n: number }).n;
+  const n = (d.prepare('SELECT COUNT(*) AS n FROM count_entries WHERE week_id = ?').get(w.id) as { n: number }).n;
   return n > 0 ? 'counting' : 'count_due';
 }
 
-/** Rebuild the auto-generated lines from the current counts. One-off lines and reviewer edits to unchanged items are kept. */
-export function draftList(week: Week) {
-  const items = activeItems();
-  const existing = db.prepare('SELECT * FROM list_lines WHERE week_id = ? AND one_off = 0').all(week.id) as ListLine[];
+/**
+ * Rebuild the auto-generated lines from the current counts. One-off lines and reviewer edits to unchanged items are kept.
+ * Reviewer removals are kept too, unless the item is no longer below minimum.
+ */
+export function draftList(d: Db, week: Week) {
+  const items = activeItems(d);
+  const existing = d.prepare('SELECT * FROM list_lines WHERE week_id = ? AND one_off = 0').all(week.id) as ListLine[];
   const byItem = new Map(existing.map((l) => [l.item_id, l]));
   const keep = new Set<number>();
-  const insert = db.prepare(
+  const insert = d.prepare(
     'INSERT INTO list_lines (week_id, item_id, name, unit, reason, suggested, qty) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
-  const update = db.prepare('UPDATE list_lines SET name = ?, unit = ?, reason = ?, suggested = ?, qty = ? WHERE id = ?');
-  const tx = db.transaction(() => {
+  const update = d.prepare('UPDATE list_lines SET name = ?, unit = ?, reason = ?, suggested = ?, qty = ? WHERE id = ?');
+  const remove = d.prepare('DELETE FROM list_lines WHERE id = ?');
+  const tx = d.transaction(() => {
     for (const it of items) {
       if (!isBelowMin(it)) continue;
       const sug = suggestedQty(it);
@@ -93,20 +97,23 @@ export function draftList(week: Week) {
       }
     }
     for (const l of existing) {
-      if (!keep.has(l.id)) db.prepare('DELETE FROM list_lines WHERE id = ?').run(l.id);
+      if (!keep.has(l.id)) remove.run(l.id);
     }
   });
   tx();
 }
 
-export function dontBuy(): string[] {
-  return activeItems()
-    .filter((it) => it.over_bought && isStocked(it))
-    .map((it) => it.name);
+/**
+ * Keep the list in step with the counts while it is still a draft: counts can be edited after
+ * "Finish" and the list follows. Once the list is sent to families, it stops changing on its own.
+ */
+export function refreshDraft(d: Db, w: Week) {
+  if (w.approved_at || !w.count_finished_at) return;
+  draftList(d, w);
 }
 
-export function listLines(weekId: number): ListLine[] {
-  return db
+export function listLines(d: Db, weekId: number): ListLine[] {
+  return d
     .prepare('SELECT * FROM list_lines WHERE week_id = ? ORDER BY one_off, name COLLATE NOCASE')
     .all(weekId) as ListLine[];
 }

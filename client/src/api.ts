@@ -24,13 +24,20 @@ export type Item = {
   mode: 'num' | 'lvl';
   min: number | null;
   target: number | null;
-  overBought: boolean;
   expiryDate: string | null;
   currentNum: number;
   currentLevel: 'Full' | 'Half' | 'Low' | 'Out';
   needsSetup: boolean;
   belowMin: boolean;
   counted?: boolean;
+};
+
+/** Who is signed in, and which catalog their PIN opened. */
+export type Me = {
+  name: string;
+  catalog: 'prod' | 'test';
+  catalogLabel: string;
+  testing: boolean;
 };
 
 export type Week = {

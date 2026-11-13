@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api, fmtQty, Line, weekendLabel } from '../api';
 import { Loading, Stepper } from '../ui';
 
-type FamilyData = { serviceDate: string; note: string; lines: Line[]; dontBuy: string[] };
+type FamilyData = { serviceDate: string; note: string; lines: Line[]; testing?: boolean };
 
 export default function Family() {
   const { token } = useParams();
@@ -32,7 +32,7 @@ export default function Family() {
   return (
     <div className="screen" style={{ paddingTop: 0 }}>
       <div className="family-head">
-        <p style={{ color: '#c9d3e6', fontSize: 13 }}>Khalsa Community Centre · langar sewa</p>
+        <p style={{ color: '#c9d3e6', fontSize: 13 }}>{data.testing ? 'TEST LIST · not for shopping' : 'Khalsa Community Centre · langar sewa'}</p>
         <h1>Your sewa list</h1>
         <p>{weekendLabel(data.serviceDate)} · {bought} of {total} bought</p>
         <div className="progress"><div style={{ width: `${total ? Math.round((bought / total) * 100) : 0}%` }} /></div>
@@ -68,12 +68,6 @@ export default function Family() {
             </div>
           );
         })}
-        {data.dontBuy.length > 0 && (
-          <>
-            <p className="section" style={{ marginTop: 24 }}>Already stocked · no need to buy</p>
-            <div className="chips">{data.dontBuy.map((n) => <span key={n} className="chip">{n}</span>)}</div>
-          </>
-        )}
         <p className="muted" style={{ marginTop: 24, lineHeight: 1.5 }}>
           Ticking items only lets the kitchen team know what you bought. They count the pantry again after langar.
         </p>

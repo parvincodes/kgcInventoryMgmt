@@ -5,11 +5,21 @@ import path from 'node:path';
 const dataDir = path.resolve(process.cwd(), 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 
-export const db = new Database(path.join(dataDir, 'pantry.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+/**
+ * Two completely separate catalogs, each with its own database file.
+ * The PIN a reviewer signs in with decides which one they get.
+ * The testing file keeps the original pantry.db so existing test data is untouched.
+ */
+export type Catalog = 'prod' | 'test';
+export const CATALOGS: Record<Catalog, { label: string; file: string }> = {
+  prod: { label: 'Khalsa Gurmat School', file: 'production.db' },
+  test: { label: 'Testing', file: 'pantry.db' }
+};
+export const CATALOG_IDS: Catalog[] = ['prod', 'test'];
 
-db.exec(`
+export type Db = Database.Database;
+
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -61,7 +71,20 @@ CREATE TABLE IF NOT EXISTS list_lines (
   bought INTEGER NOT NULL DEFAULT 0,
   bought_qty REAL
 );
-`);
+`;
+
+function openDb(file: string): Db {
+  const d = new Database(path.join(dataDir, file));
+  d.pragma('journal_mode = WAL');
+  d.pragma('foreign_keys = ON');
+  d.exec(SCHEMA);
+  return d;
+}
+
+const opened: Partial<Record<Catalog, Db>> = {};
+export function dbFor(catalog: Catalog): Db {
+  return (opened[catalog] ??= openDb(CATALOGS[catalog].file));
+}
 
 export type Item = {
   id: number;

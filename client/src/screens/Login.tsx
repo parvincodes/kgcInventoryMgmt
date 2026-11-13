@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
-import { api } from '../api';
+import { api, Me } from '../api';
 
-export default function Login({ onSignedIn }: { onSignedIn: (name: string) => void }) {
+export default function Login({ onSignedIn }: { onSignedIn: (me: Me) => void }) {
   const [name, setName] = useState(() => localStorage.getItem('reviewerName') || '');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -14,9 +14,9 @@ export default function Login({ onSignedIn }: { onSignedIn: (name: string) => vo
     setBusy(true);
     setError('');
     try {
-      const r = await api<{ name: string }>('/api/login', { body: { name: name.trim(), pin } });
+      const r = await api<Me>('/api/login', { body: { name: name.trim(), pin } });
       localStorage.setItem('reviewerName', r.name);
-      onSignedIn(r.name);
+      onSignedIn(r);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -52,6 +52,7 @@ export default function Login({ onSignedIn }: { onSignedIn: (name: string) => vo
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
         <button className="btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
         <p className="muted center">Only reviewers sign in. Sewa families get a link to their list each week.</p>
+        <p className="muted small center">The production PIN opens the Khalsa Gurmat School catalog. The testing PIN opens test data only.</p>
       </div>
     </form>
   );

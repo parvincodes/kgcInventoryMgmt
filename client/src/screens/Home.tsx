@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, Week, weekendLabel } from '../api';
+import { api, Me, Week, weekendLabel } from '../api';
 import { Chevron, Loading } from '../ui';
 
 const STEPS = ['Count due', 'Counted', 'List drafted', 'Sent to family'];
 
-export default function Home({ name, onSignOut }: { name: string; onSignOut: () => void }) {
+export default function Home({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+  const name = me.name;
   const [week, setWeek] = useState<Week | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -41,6 +42,9 @@ export default function Home({ name, onSignOut }: { name: string; onSignOut: () 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <p className="muted">Next langar · {weekendLabel(week.serviceDate)}</p>
             <h1 style={{ fontSize: 28 }}>This week</h1>
+            <span className={`tag ${me.testing ? 'low' : 'info'}`} style={{ alignSelf: 'flex-start', fontSize: 12, padding: '4px 10px' }}>
+              {me.testing ? `Test data · ${me.catalogLabel}` : me.catalogLabel}
+            </span>
           </div>
           <button type="button" onClick={signOut} aria-label={`Signed in as ${name}. Sign out`} style={{ width: 44, height: 44, borderRadius: 22, border: 'none', background: 'var(--navy-soft)', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
             {name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase()}

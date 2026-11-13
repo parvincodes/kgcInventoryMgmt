@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { api } from './api';
+import { api, Me } from './api';
 import Login from './screens/Login';
 import Home from './screens/Home';
 import Count from './screens/Count';
@@ -11,15 +11,15 @@ import ItemEdit from './screens/ItemEdit';
 import Scan from './screens/Scan';
 
 function ReviewerRoutes() {
-  const [me, setMe] = useState<string | null | undefined>(undefined);
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
-    api<{ name: string | null }>('/api/me').then((r) => setMe(r.name)).catch(() => setMe(null));
+    api<Me | { name: null }>('/api/me').then((r) => setMe(r.name ? (r as Me) : null)).catch(() => setMe(null));
   }, []);
   if (me === undefined) return <div className="screen" />;
   if (!me) return <Login onSignedIn={setMe} />;
   return (
     <Routes>
-      <Route path="/" element={<Home name={me} onSignOut={() => setMe(null)} />} />
+      <Route path="/" element={<Home me={me} onSignOut={() => setMe(null)} />} />
       <Route path="/count" element={<Count />} />
       <Route path="/list" element={<List />} />
       <Route path="/catalog" element={<Catalog />} />

@@ -11,9 +11,9 @@ Reviewers count the pantry after Sunday langar, the app drafts a shopping list f
 | Sign in | Reviewer name + shared PIN (Google/phone sign-in comes later) |
 | This week | Week status (Count due → Counted → List drafted → Sent) and the next step |
 | Weekly count | Grouped by Kitchen / Shelves / Fridge / Freezer, A–Z. Starts at last week's numbers; +/− or Full/Half/Low/Out; saves every tap; either reviewer can resume |
-| Shopping list | Drafted from the count (target − current). Edit, remove, add one-offs, note to family, "don't buy" reminders. Approve, then share on WhatsApp |
+| Shopping list | Drafted from the count (target − current). Edit, remove, add one-offs, note to family. Approve, then share on WhatsApp |
 | Family list (`/f/<link>`) | No sign-in. Tick items bought and correct quantities. Never changes inventory |
-| Item catalog | Location, unit, number or level, minimum, target, expiry date, "often over-bought" flag |
+| Item catalog | Location, unit, number or level, minimum, target, expiry date |
 | Add by photo | Opens the phone camera, AI lists what's on the shelf, you confirm before saving |
 
 ## Run it on your laptop and open it on your iPhone

@@ -50,7 +50,6 @@ export default function Catalog() {
               <span className="name">
                 {it.name}
                 {it.needsSetup && <span className="tag low">Set min/target</span>}
-                {it.overBought && <span className="tag plain">Over-bought</span>}
               </span>
               <span className="muted small">
                 {it.location} · {it.mode === 'lvl' ? 'level' : `${it.unit || 'units'}${it.min != null ? ` · min ${it.min}` : ''}${it.target != null ? ` · target ${it.target}` : ''}`}
