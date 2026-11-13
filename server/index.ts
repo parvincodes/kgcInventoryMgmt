@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Catalog, CATALOGS, CATALOG_IDS, Db, dbFor, Item, LEVELS, LOCATIONS, ListLine, Week } from './db.js';
+import { fileURLToPath } from 'node:url';
+import { authDb, Catalog, CATALOGS, CATALOG_IDS, Db, dbFor, Item, LEVELS, LOCATIONS, ListLine, Week } from './db.js';
 import {
   activeItems,
   getOrCreateWeek,
@@ -15,7 +16,9 @@ import {
   refreshDraft,
   weekStatus
 } from './logic.js';
-import { scanPhoto } from './scan.js';
+import { identifyProduct, scanPhoto } from './scan.js';
+import { deletePhoto, photoPath, readPhotoBase64, savePhoto } from './product-photos.js';
+import { canonicalName, punjabiName } from './grocery-glossary.js';
 
 declare global {
   namespace Express {
@@ -30,7 +33,6 @@ declare global {
 const PORT = Number(process.env.PORT || 3000);
 const PROD_PIN = process.env.REVIEWER_PIN || '1234';
 const TEST_PIN = process.env.TEST_PIN || '';
-const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 if (!process.env.REVIEWER_PIN) console.warn('⚠  REVIEWER_PIN is not set. Using 1234. Set it in .env before sharing.');
 if (!TEST_PIN) console.warn('ℹ  TEST_PIN is not set, so the Testing catalog is locked. Set it in .env to use it.');
 else if (TEST_PIN === PROD_PIN) console.warn('⚠  TEST_PIN matches REVIEWER_PIN. Use two different PINs; the production catalog wins for now.');
@@ -40,24 +42,32 @@ const PINS: Record<Catalog, string | null> = { prod: PROD_PIN, test: TEST_PIN ||
 
 const app = express();
 app.use(express.json({ limit: '12mb' }));
-app.use(cookieParser(SECRET));
+app.use(cookieParser());
 
 // ---------- helpers ----------
-const sessionCatalog = (req: Request): Catalog | null => {
-  const v = req.signedCookies?.catalog;
-  return v === 'prod' || v === 'test' ? v : null;
-};
-const reviewer = (req: Request): string | null => {
-  const v = req.signedCookies?.reviewer;
-  return typeof v === 'string' && v && sessionCatalog(req) ? v : null;
-};
+const SESSION_COOKIE = 'session';
+const SESSION_MS = Number(process.env.SESSION_HOURS || 8) * 60 * 60 * 1000;
+
+type SessionRow = { id: string; name: string; catalog: Catalog; expires_at: number };
+
+/** The signed-in session for this request, or null. Expired sessions are removed when found. */
+function currentSession(req: Request): SessionRow | null {
+  const id = req.cookies?.[SESSION_COOKIE];
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{32,64}$/.test(id)) return null;
+  const s = authDb.prepare('SELECT id, name, catalog, expires_at FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
+  if (!s) return null;
+  if (s.expires_at <= Date.now()) {
+    authDb.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+    return null;
+  }
+  return s;
+}
 const requireReviewer = (req: Request, res: Response, next: NextFunction) => {
-  const name = reviewer(req);
-  const catalog = sessionCatalog(req);
-  if (!name || !catalog) return res.status(401).json({ error: 'Sign in first.' });
-  req.reviewer = name;
-  req.catalog = catalog;
-  req.db = dbFor(catalog);
+  const s = currentSession(req);
+  if (!s) return res.status(401).json({ error: 'Sign in first.' });
+  req.reviewer = s.name;
+  req.catalog = s.catalog;
+  req.db = dbFor(s.catalog);
   next();
 };
 const num = (v: unknown): number | null => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -72,6 +82,7 @@ function itemView(it: Item) {
   return {
     id: it.id,
     name: it.name,
+    namePa: punjabiName(it.name),
     location: it.location,
     unit: it.unit,
     mode: it.mode,
@@ -81,7 +92,8 @@ function itemView(it: Item) {
     currentNum: it.current_num,
     currentLevel: it.current_level,
     needsSetup: needsSetup(it),
-    belowMin: isBelowMin(it)
+    belowMin: isBelowMin(it),
+    hasPhoto: !!it.image_file
   };
 }
 function lineView(l: ListLine) {
@@ -89,6 +101,7 @@ function lineView(l: ListLine) {
     id: l.id,
     itemId: l.item_id,
     name: l.name,
+    namePa: punjabiName(l.name),
     unit: l.unit,
     reason: l.reason,
     suggested: l.suggested,
@@ -137,12 +150,12 @@ function findFamilyWeek(token: string): { d: Db; w: Week; catalog: Catalog } | n
 }
 
 // ---------- auth ----------
-const COOKIE = { signed: true, httpOnly: true, sameSite: 'lax' as const, maxAge: 1000 * 60 * 60 * 24 * 180 };
+// Secure cookies need HTTPS. Set COOKIE_SECURE=1 once the app is served over HTTPS.
+const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.COOKIE_SECURE === '1' };
 
 app.get('/api/me', (req, res) => {
-  const name = reviewer(req);
-  const catalog = sessionCatalog(req);
-  res.json(name && catalog ? meView(name, catalog) : { name: null });
+  const s = currentSession(req);
+  res.json(s ? meView(s.name, s.catalog) : { name: null });
 });
 app.post('/api/login', (req, res) => {
   const pin = str(req.body?.pin, 40);
@@ -153,13 +166,18 @@ app.post('/api/login', (req, res) => {
     return expected != null && pinMatches(pin, expected);
   });
   if (!catalog) return res.status(401).json({ error: "That PIN didn't match." });
-  res.cookie('reviewer', name, COOKIE);
-  res.cookie('catalog', catalog, COOKIE);
+  // A random ID, not data: the server keeps who signed in and which catalog, for SESSION_MS.
+  const id = crypto.randomBytes(32).toString('base64url');
+  const now = Date.now();
+  authDb.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
+  authDb.prepare('INSERT INTO sessions (id, name, catalog, created_at, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, name, catalog, now, now + SESSION_MS);
+  res.cookie(SESSION_COOKIE, id, { ...COOKIE_OPTS, maxAge: SESSION_MS });
   res.json(meView(name, catalog));
 });
-app.post('/api/logout', (_req, res) => {
-  res.clearCookie('reviewer');
-  res.clearCookie('catalog');
+app.post('/api/logout', (req, res) => {
+  const id = req.cookies?.[SESSION_COOKIE];
+  if (typeof id === 'string') authDb.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
   res.json({ ok: true });
 });
 
@@ -206,6 +224,61 @@ app.put('/api/items/:id', requireReviewer, (req, res) => {
     `UPDATE items SET name=?, location=?, unit=?, mode=?, min_qty=?, target_qty=?, expiry_date=?, updated_at=datetime('now') WHERE id=?`
   ).run(b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, id);
   res.json(itemView(d.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item));
+});
+
+// ---------- product photos ----------
+app.put('/api/items/:id/photo', requireReviewer, (req, res) => {
+  const d = req.db!;
+  const id = Number(req.params.id);
+  const it = d.prepare('SELECT * FROM items WHERE id = ? AND active = 1').get(id) as Item | undefined;
+  if (!it) return res.status(404).json({ error: 'Item not found.' });
+  try {
+    const file = savePhoto(req.catalog!, id, String(req.body?.image || ''));
+    d.prepare('UPDATE items SET image_file = ? WHERE id = ?').run(file, id);
+  } catch (e: any) {
+    return res.status(400).json({ error: e.message });
+  }
+  res.json(itemView(d.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item));
+});
+
+app.get('/api/items/:id/photo', requireReviewer, (req, res) => {
+  const it = req.db!.prepare('SELECT * FROM items WHERE id = ?').get(Number(req.params.id)) as Item | undefined;
+  if (!it?.image_file) return res.status(404).json({ error: 'No photo.' });
+  res.setHeader('Cache-Control', 'private, no-cache');
+  res.sendFile(photoPath(req.catalog!, it.image_file));
+});
+
+app.delete('/api/items/:id/photo', requireReviewer, (req, res) => {
+  const d = req.db!;
+  const it = d.prepare('SELECT * FROM items WHERE id = ?').get(Number(req.params.id)) as Item | undefined;
+  if (!it) return res.status(404).json({ error: 'Item not found.' });
+  if (it.image_file) deletePhoto(req.catalog!, it.image_file);
+  d.prepare('UPDATE items SET image_file = NULL WHERE id = ?').run(it.id);
+  res.json({ ok: true });
+});
+
+// Suggests a name for a single product, from a new photo (image) or the item's saved photo (itemId).
+app.post('/api/identify', requireReviewer, async (req, res) => {
+  let image = typeof req.body?.image === 'string' ? req.body.image : '';
+  let base64 = '';
+  let mime: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg';
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(image);
+  if (m) {
+    mime = m[1] as typeof mime;
+    base64 = m[2];
+  } else if (req.body?.itemId != null) {
+    const it = req.db!.prepare('SELECT * FROM items WHERE id = ?').get(Number(req.body.itemId)) as Item | undefined;
+    if (!it?.image_file) return res.status(400).json({ error: 'Take a photo of the product first.' });
+    base64 = readPhotoBase64(req.catalog!, it.image_file);
+  } else {
+    return res.status(400).json({ error: 'Send a product photo.' });
+  }
+  try {
+    res.json(await identifyProduct(base64, mime));
+  } catch (e: any) {
+    console.error('identify failed', e);
+    res.status(502).json({ error: "Couldn't read the product. Type the name instead." });
+  }
 });
 
 app.delete('/api/items/:id', requireReviewer, (req, res) => {
@@ -366,7 +439,7 @@ app.post('/api/scan/save', requireReviewer, (req, res) => {
   let added = 0, updated = 0;
   const tx = d.transaction(() => {
     for (const r of rows) {
-      const name = str(r.name);
+      const name = canonicalName(str(r.name));
       if (!name) continue;
       const count = Math.max(0, Math.round(Number(r.count) || 0));
       if (r.matchId) {
@@ -395,15 +468,21 @@ if (fs.existsSync(clientDir)) {
 }
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
-app.listen(PORT, '0.0.0.0', () => {
-  const ips = Object.values(os.networkInterfaces())
-    .flat()
-    .filter((n) => n && n.family === 'IPv4' && !n.internal)
-    .map((n) => n!.address);
-  console.log(`\nLangar Pantry is running.`);
-  console.log(`  On this computer:  http://localhost:${PORT}`);
-  for (const ip of ips) console.log(`  On your phone:     http://${ip}:${PORT}   (same Wi-Fi)`);
-  console.log(`  Catalogs:          ${CATALOGS.prod.label} (REVIEWER_PIN) · ${CATALOGS.test.label} (TEST_PIN${TEST_PIN ? '' : ', not set'})`);
-  if (!process.env.ANTHROPIC_API_KEY) console.log('  Add by photo: demo mode (set ANTHROPIC_API_KEY in .env for real photo reading)');
-  console.log('');
-});
+// Only listen when run directly (npm start / tsx server/index.ts), so tests can import `app` without opening a port.
+const isMain = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  app.listen(PORT, '0.0.0.0', () => {
+    const ips = Object.values(os.networkInterfaces())
+      .flat()
+      .filter((n) => n && n.family === 'IPv4' && !n.internal)
+      .map((n) => n!.address);
+    console.log(`\nLangar Pantry is running.`);
+    console.log(`  On this computer:  http://localhost:${PORT}`);
+    for (const ip of ips) console.log(`  On your phone:     http://${ip}:${PORT}   (same Wi-Fi)`);
+    console.log(`  Catalogs:          ${CATALOGS.prod.label} (REVIEWER_PIN) · ${CATALOGS.test.label} (TEST_PIN${TEST_PIN ? '' : ', not set'})`);
+    if (!process.env.ANTHROPIC_API_KEY) console.log('  Add by photo: demo mode (set ANTHROPIC_API_KEY in .env for real photo reading)');
+    console.log('');
+  });
+}
+
+export { app };

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, Me, Week, weekendLabel } from '../api';
-import { Chevron, Loading } from '../ui';
+import { Chevron, LangToggle, Loading } from '../ui';
+import { useLang } from '../lang';
 
 const STEPS = ['Count due', 'Counted', 'List drafted', 'Sent to family'];
 
 export default function Home({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const name = me.name;
+  const lang = useLang();
   const [week, setWeek] = useState<Week | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -46,9 +48,12 @@ export default function Home({ me, onSignOut }: { me: Me; onSignOut: () => void 
               {me.testing ? `Test data · ${me.catalogLabel}` : me.catalogLabel}
             </span>
           </div>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <LangToggle lang={lang} />
           <button type="button" onClick={signOut} aria-label={`Signed in as ${name}. Sign out`} style={{ width: 44, height: 44, borderRadius: 22, border: 'none', background: 'var(--navy-soft)', color: 'var(--navy)', fontWeight: 600, cursor: 'pointer' }}>
             {name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase()}
           </button>
+          </span>
         </div>
       </div>
       <div className="body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

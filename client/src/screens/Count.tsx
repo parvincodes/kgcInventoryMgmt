@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, expirySoon, Item, LEVELS, LOCATIONS, Week } from '../api';
-import { Back, Loading, Stepper } from '../ui';
+import { Back, LangToggle, Loading, Stepper } from '../ui';
+import { productName, useLang } from '../lang';
 
 export default function Count() {
   const nav = useNavigate();
+  const lang = useLang();
   const [items, setItems] = useState<Item[] | null>(null);
   const [week, setWeek] = useState<Week | null>(null);
   const [saving, setSaving] = useState(0);
@@ -64,7 +66,7 @@ export default function Count() {
       <div className="header">
         <div className="topbar">
           <Back />
-          <span className="muted" style={{ color: saving ? 'var(--muted)' : 'var(--green)' }}>{saving ? 'Saving…' : '✓ Saved'}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span className="muted" style={{ color: saving ? 'var(--muted)' : 'var(--green)' }}>{saving ? 'Saving…' : '✓ Saved'}</span><LangToggle lang={lang} /></span>
         </div>
         <h1>Weekly count</h1>
         <div className="progress"><div style={{ width: `${items.length ? Math.round((done / items.length) * 100) : 0}%` }} /></div>
@@ -94,7 +96,7 @@ export default function Count() {
                   </button>
                   <div className="grow">
                     <span className="name">
-                      {it.name}
+                      {productName(it, lang)}
                       {it.belowMin && <span className="tag low">Below min</span>}
                       {it.needsSetup && <span className="tag plain">No min set</span>}
                       {exp && <span className="tag info">{exp}</span>}

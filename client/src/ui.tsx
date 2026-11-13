@@ -1,3 +1,4 @@
+import { setLang } from './lang';
 import { useNavigate } from 'react-router-dom';
 
 export function Back({ to = '/', label = 'Back' }: { to?: string; label?: string }) {
@@ -51,5 +52,21 @@ export function Loading() {
     <div className="screen" style={{ alignItems: 'center', justifyContent: 'center' }}>
       <div className="spinner" />
     </div>
+  );
+}
+
+/** Switches product names between English and Punjabi. Works on light and dark headers. */
+export function LangToggle({ lang }: { lang: 'en' | 'pa' }) {
+  const next = lang === 'pa' ? 'en' : 'pa';
+  return (
+    <button
+      type="button"
+      className="link-btn"
+      onClick={() => setLang(next)}
+      aria-label={next === 'pa' ? 'Show product names in Punjabi' : 'Show product names in English'}
+      style={{ minHeight: 36, padding: '4px 12px', border: '1px solid currentColor', borderRadius: 18, color: 'inherit', fontSize: 14, fontWeight: 600 }}
+    >
+      {next === 'pa' ? 'ਪੰਜਾਬੀ' : 'English'}
+    </button>
   );
 }

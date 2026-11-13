@@ -1,0 +1,354 @@
+[
+  {
+    "name": "Tata Toor Dal",
+    "location": "Shelves",
+    "file": "tata-toor-dal.jpg",
+    "box": [
+      105,
+      62,
+      242,
+      222
+    ]
+  },
+  {
+    "name": "Tata Salt",
+    "location": "Shelves",
+    "file": "tata-salt.jpg",
+    "box": [
+      0,
+      452,
+      185,
+      562
+    ]
+  },
+  {
+    "name": "Aashirvaad Atta (whole wheat flour)",
+    "location": "Shelves",
+    "file": "aashirvaad-atta-whole-wheat-flour.jpg",
+    "box": [
+      108,
+      430,
+      335,
+      600
+    ]
+  },
+  {
+    "name": "Daawat Basmati Rice",
+    "location": "Shelves",
+    "file": "daawat-basmati-rice.jpg",
+    "box": [
+      332,
+      470,
+      560,
+      650
+    ]
+  },
+  {
+    "name": "Fortune Maida (refined wheat flour)",
+    "location": "Shelves",
+    "file": "fortune-maida-refined-wheat-flour.jpg",
+    "box": [
+      520,
+      428,
+      727,
+      690
+    ]
+  },
+  {
+    "name": "Dhara Mustard Oil",
+    "location": "Shelves",
+    "file": "dhara-mustard-oil.jpg",
+    "box": [
+      35,
+      280,
+      102,
+      448
+    ]
+  },
+  {
+    "name": "Sundrop Refined Sunflower Oil",
+    "location": "Shelves",
+    "file": "sundrop-refined-sunflower-oil.jpg",
+    "box": [
+      100,
+      272,
+      166,
+      448
+    ]
+  },
+  {
+    "name": "Everest Turmeric Powder",
+    "location": "Shelves",
+    "file": "everest-turmeric-powder.jpg",
+    "box": [
+      354,
+      214,
+      424,
+      312
+    ]
+  },
+  {
+    "name": "Everest Red Chilli Powder",
+    "location": "Shelves",
+    "file": "everest-red-chilli-powder.jpg",
+    "box": [
+      428,
+      214,
+      498,
+      312
+    ]
+  },
+  {
+    "name": "MDH masala",
+    "location": "Shelves",
+    "file": "mdh-masala.jpg",
+    "box": [
+      280,
+      218,
+      348,
+      332
+    ]
+  },
+  {
+    "name": "Patanjali Ajwain",
+    "location": "Shelves",
+    "file": "patanjali-ajwain.jpg",
+    "box": [
+      716,
+      214,
+      792,
+      328
+    ]
+  },
+  {
+    "name": "Patanjali Black Pepper",
+    "location": "Shelves",
+    "file": "patanjali-black-pepper.jpg",
+    "box": [
+      790,
+      214,
+      842,
+      328
+    ]
+  },
+  {
+    "name": "Turmeric powder (loose jar)",
+    "location": "Shelves",
+    "file": "turmeric-powder-loose-jar.jpg",
+    "box": [
+      344,
+      315,
+      412,
+      448
+    ]
+  },
+  {
+    "name": "Red chilli powder (loose jar)",
+    "location": "Shelves",
+    "file": "red-chilli-powder-loose-jar.jpg",
+    "box": [
+      418,
+      315,
+      488,
+      452
+    ]
+  },
+  {
+    "name": "Cumin seeds (loose jar)",
+    "location": "Shelves",
+    "file": "cumin-seeds-loose-jar.jpg",
+    "box": [
+      492,
+      315,
+      566,
+      452
+    ]
+  },
+  {
+    "name": "Coriander seeds (loose jar)",
+    "location": "Shelves",
+    "file": "coriander-seeds-loose-jar.jpg",
+    "box": [
+      566,
+      318,
+      638,
+      452
+    ]
+  },
+  {
+    "name": "Green cardamom (loose jar)",
+    "location": "Shelves",
+    "file": "green-cardamom-loose-jar.jpg",
+    "box": [
+      768,
+      325,
+      832,
+      452
+    ]
+  },
+  {
+    "name": "Nigella seeds (loose jar)",
+    "location": "Shelves",
+    "file": "nigella-seeds-loose-jar.jpg",
+    "box": [
+      835,
+      325,
+      892,
+      456
+    ]
+  },
+  {
+    "name": "Amul Ghee",
+    "location": "Shelves",
+    "file": "amul-ghee.jpg",
+    "box": [
+      1220,
+      268,
+      1302,
+      462
+    ]
+  },
+  {
+    "name": "Amul Taaza Milk",
+    "location": "Fridge",
+    "file": "amul-taaza-milk.jpg",
+    "box": [
+      888,
+      310,
+      1052,
+      458
+    ]
+  },
+  {
+    "name": "Amul Butter",
+    "location": "Fridge",
+    "file": "amul-butter.jpg",
+    "box": [
+      1046,
+      312,
+      1140,
+      456
+    ]
+  },
+  {
+    "name": "Amul Paneer",
+    "location": "Fridge",
+    "file": "amul-paneer.jpg",
+    "box": [
+      1140,
+      298,
+      1222,
+      456
+    ]
+  },
+  {
+    "name": "Tomatoes",
+    "location": "Kitchen",
+    "file": "tomatoes.jpg",
+    "box": [
+      720,
+      520,
+      942,
+      612
+    ]
+  },
+  {
+    "name": "Potatoes",
+    "location": "Kitchen",
+    "file": "potatoes.jpg",
+    "box": [
+      948,
+      520,
+      1168,
+      602
+    ]
+  },
+  {
+    "name": "Red onions",
+    "location": "Kitchen",
+    "file": "red-onions.jpg",
+    "box": [
+      722,
+      624,
+      872,
+      722
+    ]
+  },
+  {
+    "name": "Green chillies",
+    "location": "Kitchen",
+    "file": "green-chillies.jpg",
+    "box": [
+      868,
+      648,
+      952,
+      722
+    ]
+  },
+  {
+    "name": "Fresh coriander",
+    "location": "Kitchen",
+    "file": "fresh-coriander.jpg",
+    "box": [
+      905,
+      578,
+      992,
+      700
+    ]
+  },
+  {
+    "name": "Garlic",
+    "location": "Kitchen",
+    "file": "garlic.jpg",
+    "box": [
+      996,
+      655,
+      1108,
+      712
+    ]
+  },
+  {
+    "name": "Ginger",
+    "location": "Kitchen",
+    "file": "ginger.jpg",
+    "box": [
+      1105,
+      648,
+      1240,
+      712
+    ]
+  },
+  {
+    "name": "Bananas",
+    "location": "Kitchen",
+    "file": "bananas.jpg",
+    "box": [
+      1126,
+      578,
+      1262,
+      662
+    ]
+  },
+  {
+    "name": "Mangoes",
+    "location": "Kitchen",
+    "file": "mangoes.jpg",
+    "box": [
+      1172,
+      512,
+      1372,
+      612
+    ]
+  },
+  {
+    "name": "Apples",
+    "location": "Kitchen",
+    "file": "apples.jpg",
+    "box": [
+      1244,
+      608,
+      1408,
+      712
+    ]
+  }
+]

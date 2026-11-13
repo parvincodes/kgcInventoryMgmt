@@ -19,6 +19,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 export type Item = {
   id: number;
   name: string;
+  namePa: string | null;
   location: string;
   unit: string;
   mode: 'num' | 'lvl';
@@ -29,6 +30,7 @@ export type Item = {
   currentLevel: 'Full' | 'Half' | 'Low' | 'Out';
   needsSetup: boolean;
   belowMin: boolean;
+  hasPhoto: boolean;
   counted?: boolean;
 };
 
@@ -61,6 +63,7 @@ export type Line = {
   id: number;
   itemId: number | null;
   name: string;
+  namePa: string | null;
   unit: string;
   reason: string;
   suggested: number;

@@ -2,7 +2,9 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const dataDir = path.resolve(process.cwd(), 'data');
+// DATA_DIR lets tests point at a throwaway folder. Normally this is ./data.
+const dataDir = path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
+export const DATA_DIR = dataDir;
 fs.mkdirSync(dataDir, { recursive: true });
 
 /**
@@ -18,6 +20,23 @@ export const CATALOGS: Record<Catalog, { label: string; file: string }> = {
 export const CATALOG_IDS: Catalog[] = ['prod', 'test'];
 
 export type Db = Database.Database;
+
+/**
+ * Sign-in sessions. Shared by both catalogs: a session records who signed in and which catalog their PIN opened.
+ * The browser holds only a random session ID; the server checks it here on every request.
+ */
+const authFile = new Database(path.join(dataDir, 'auth.db'));
+authFile.pragma('journal_mode = WAL');
+authFile.exec(`
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  catalog TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+`);
+export const authDb: Db = authFile;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS items (
@@ -78,6 +97,9 @@ function openDb(file: string): Db {
   d.pragma('journal_mode = WAL');
   d.pragma('foreign_keys = ON');
   d.exec(SCHEMA);
+  // Migration: product photos. Older databases don't have this column yet.
+  const cols = d.prepare('PRAGMA table_info(items)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'image_file')) d.exec('ALTER TABLE items ADD COLUMN image_file TEXT');
   return d;
 }
 
@@ -99,6 +121,7 @@ export type Item = {
   current_num: number;
   current_level: 'Full' | 'Half' | 'Low' | 'Out';
   active: number;
+  image_file: string | null;
 };
 
 export type Week = {

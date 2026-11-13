@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, fmtQty, Line, weekendLabel } from '../api';
-import { Loading, Stepper } from '../ui';
+import { LangToggle, Loading, Stepper } from '../ui';
+import { productName, useLang } from '../lang';
 
 type FamilyData = { serviceDate: string; note: string; lines: Line[]; testing?: boolean };
 
 export default function Family() {
   const { token } = useParams();
+  const lang = useLang();
   const [data, setData] = useState<FamilyData | null>(null);
   const [error, setError] = useState('');
 
@@ -33,7 +35,10 @@ export default function Family() {
     <div className="screen" style={{ paddingTop: 0 }}>
       <div className="family-head">
         <p style={{ color: '#c9d3e6', fontSize: 13 }}>{data.testing ? 'TEST LIST · not for shopping' : 'Khalsa Community Centre · langar sewa'}</p>
-        <h1>Your sewa list</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <h1>Your sewa list</h1>
+          <LangToggle lang={lang} />
+        </div>
         <p>{weekendLabel(data.serviceDate)} · {bought} of {total} bought</p>
         <div className="progress"><div style={{ width: `${total ? Math.round((bought / total) * 100) : 0}%` }} /></div>
       </div>
@@ -57,7 +62,7 @@ export default function Family() {
                 {l.bought ? '✓' : ''}
               </button>
               <div className="grow">
-                <span className={`name${l.bought ? ' strike' : ''}`}>{l.name}</span>
+                <span className={`name${l.bought ? ' strike' : ''}`}>{productName(l, lang)}</span>
                 <span className="muted">
                   {l.bought
                     ? got === l.qty ? `Bought ${fmtQty(got)} ${l.unit}` : `Bought ${fmtQty(got)} of ${fmtQty(l.qty)} ${l.unit}`

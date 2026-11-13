@@ -1,0 +1,33 @@
+status,name,location,unit,count,confidence,reference_image,notes
+,Tata Salt,Shelves,packs,1,high,tests/photos/crops/shelf-4/tata-salt.jpg,Orange bag bottom-left of shelf
+,Tata Toor Dal,Shelves,packs,1,medium,tests/photos/crops/shelf-4/tata-toor-dal.jpg,Orange bag top-left; label partly visible
+,Aashirvaad Atta (whole wheat flour),Shelves,bags,2,high,tests/photos/crops/shelf-4/aashirvaad-atta-whole-wheat-flour.jpg,Red bags stacked bottom-left
+,Daawat Basmati Rice,Shelves,bags,2,high,tests/photos/crops/shelf-4/daawat-basmati-rice.jpg,Blue bags bottom-centre
+,Fortune Maida (refined wheat flour),Shelves,bags,2,high,tests/photos/crops/shelf-4/fortune-maida-refined-wheat-flour.jpg,White bags bottom-centre-right
+,Dhara Mustard Oil,Shelves,bottles,1,high,tests/photos/crops/shelf-4/dhara-mustard-oil.jpg,Left-hand bottle on top-left shelf
+,Sundrop Refined Sunflower Oil,Shelves,bottles,1,medium,tests/photos/crops/shelf-4/sundrop-refined-sunflower-oil.jpg,Yellow bottle next to Dhara
+,Everest Turmeric Powder,Shelves,packs,1,high,tests/photos/crops/shelf-4/everest-turmeric-powder.jpg,Yellow box top-centre
+,Everest Red Chilli Powder,Shelves,packs,1,high,tests/photos/crops/shelf-4/everest-red-chilli-powder.jpg,Red box top-centre
+,MDH masala (variety unclear),Shelves,packs,1,low,tests/photos/crops/shelf-4/mdh-masala.jpg,Green box left of jars; variety not readable
+,Patanjali Ajwain,Shelves,packs,1,high,tests/photos/crops/shelf-4/patanjali-ajwain.jpg,Green packet top-right of boxes
+,Patanjali Black Pepper,Shelves,packs,1,medium,tests/photos/crops/shelf-4/patanjali-black-pepper.jpg,Dark packet top-right; text partly visible
+,Turmeric powder (loose jar),Shelves,jars,1,high,tests/photos/crops/shelf-4/turmeric-powder-loose-jar.jpg,Yellow powder in jar; no label
+,Red chilli powder (loose jar),Shelves,jars,1,high,tests/photos/crops/shelf-4/red-chilli-powder-loose-jar.jpg,Red powder in jar; no label
+,Cumin seeds (jeera loose jar),Shelves,jars,1,medium,tests/photos/crops/shelf-4/cumin-seeds-loose-jar.jpg,Brown seeds in jar; identified by colour and shape
+,Coriander seeds (loose jar),Shelves,jars,1,medium,tests/photos/crops/shelf-4/coriander-seeds-loose-jar.jpg,Tan seeds in jar; identified by colour
+,Green cardamom (loose jar),Shelves,jars,1,medium,tests/photos/crops/shelf-4/green-cardamom-loose-jar.jpg,Green pods in jar
+,Amul Ghee,Shelves,tins,2,high,tests/photos/crops/shelf-4/amul-ghee.jpg,Blue-patterned tins top-right
+,Amul Taaza Milk (toned 1 L),Fridge,cartons,2,high,tests/photos/crops/shelf-4/amul-taaza-milk.jpg,Blue Tetra packs top-centre
+,Amul Butter,Fridge,packs,2,high,tests/photos/crops/shelf-4/amul-butter.jpg,Yellow-and-white boxes right of centre
+,Amul Paneer,Fridge,packs,2,high,tests/photos/crops/shelf-4/amul-paneer.jpg,Green-and-white boxes top-right
+,Tomatoes,Kitchen,kg,0,high,tests/photos/crops/shelf-4/tomatoes.jpg,Basket bottom-centre-right
+,Potatoes,Kitchen,kg,0,high,tests/photos/crops/shelf-4/potatoes.jpg,Basket bottom-right
+,Red onions,Kitchen,kg,0,high,tests/photos/crops/shelf-4/red-onions.jpg,Basket bottom-centre
+,Green chillies,Kitchen,kg,0,high,tests/photos/crops/shelf-4/green-chillies.jpg,Basket bottom-centre
+,Fresh coriander,Kitchen,bunches,0,high,tests/photos/crops/shelf-4/fresh-coriander.jpg,Leafy greens bottom-centre | Crop may include some green chillies at the top edge
+,Garlic,Kitchen,bulbs,0,high,tests/photos/crops/shelf-4/garlic.jpg,Basket bottom-right
+,Ginger,Kitchen,kg,0,high,tests/photos/crops/shelf-4/ginger.jpg,Basket bottom-right
+,Bananas,Kitchen,bunches,0,high,tests/photos/crops/shelf-4/bananas.jpg,Basket right
+,Mangoes,Kitchen,pieces,0,high,tests/photos/crops/shelf-4/mangoes.jpg,Basket top-right
+,Apples,Kitchen,pieces,0,high,tests/photos/crops/shelf-4/apples.jpg,Basket far right
+,Nigella seeds (loose jar),Shelves,,1,medium,tests/photos/crops/shelf-4/nigella-seeds-loose-jar.jpg,Added from crop; check name

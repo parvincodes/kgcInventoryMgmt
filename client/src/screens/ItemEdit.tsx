@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, Item, LOCATIONS } from '../api';
-import { Back, Loading, Switch } from '../ui';
+import { Back, CameraIcon, Loading, Switch } from '../ui';
+import { toJpeg } from '../photo';
 
 type Form = {
   name: string;
@@ -14,6 +15,8 @@ type Form = {
   expiryDate: string;
 };
 
+type Identified = { demo: boolean; name: string | null; unit: string; confidence: 'high' | 'low' };
+
 const empty: Form = { name: '', location: 'Shelves', unit: '', mode: 'num', min: '', target: '', trackExpiry: false, expiryDate: '' };
 
 export default function ItemEdit() {
@@ -23,12 +26,19 @@ export default function ItemEdit() {
   const [f, setF] = useState<Form | null>(isNew ? empty : null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // Photo state. For a new item the photo waits in `pending` until the item is saved.
+  const [hasPhoto, setHasPhoto] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [photoVersion, setPhotoVersion] = useState(0);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoNote, setPhotoNote] = useState('');
 
   useEffect(() => {
     if (isNew) return;
     api<Item[]>('/api/items').then((items) => {
       const it = items.find((i) => String(i.id) === id);
       if (!it) return setError('Item not found.');
+      setHasPhoto(it.hasPhoto);
       setF({
         name: it.name,
         location: it.location,
@@ -45,6 +55,56 @@ export default function ItemEdit() {
   if (!f) return error ? <div className="screen body"><p className="error">{error}</p></div> : <Loading />;
   const set = (patch: Partial<Form>) => setF({ ...f, ...patch });
 
+  const shownPhoto = pending ?? (hasPhoto && !isNew ? `/api/items/${id}/photo?v=${photoVersion}` : null);
+
+  async function onPhoto(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    setPhotoNote('');
+    setPhotoBusy(true);
+    try {
+      const image = await toJpeg(file, 1024);
+      if (isNew) {
+        setPending(image);
+      } else {
+        await api(`/api/items/${id}/photo`, { method: 'PUT', body: { image } });
+        setHasPhoto(true);
+        setPhotoVersion((v) => v + 1);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function removePhoto() {
+    setPending(null);
+    if (!isNew) {
+      await api(`/api/items/${id}/photo`, { method: 'DELETE' });
+      setHasPhoto(false);
+    }
+  }
+
+  async function suggestName() {
+    setPhotoNote('');
+    setPhotoBusy(true);
+    try {
+      const body = pending ? { image: pending } : { itemId: Number(id) };
+      const r = await api<Identified>('/api/identify', { body });
+      if (r.demo) return setPhotoNote('Demo mode: add an Anthropic key to .env to read photos.');
+      if (!r.name) return setPhotoNote("Couldn't tell what this is. Type the name instead.");
+      setF((cur) => cur && { ...cur, name: r.name!, unit: cur.unit || r.unit });
+      setPhotoNote(`Suggested “${r.name}”${r.confidence === 'low' ? ', not sure' : ''}. Check it before saving.`);
+    } catch (err: any) {
+      setPhotoNote(err.message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!f!.name.trim()) return setError('Enter a name.');
@@ -54,8 +114,12 @@ export default function ItemEdit() {
     setBusy(true);
     const body = { ...f!, expiryDate: f!.trackExpiry ? f!.expiryDate : '' };
     try {
-      if (isNew) await api('/api/items', { body });
-      else await api(`/api/items/${id}`, { method: 'PUT', body });
+      if (isNew) {
+        const created = await api<Item>('/api/items', { body });
+        if (pending) await api(`/api/items/${created.id}/photo`, { method: 'PUT', body: { image: pending } });
+      } else {
+        await api(`/api/items/${id}`, { method: 'PUT', body });
+      }
       nav('/catalog');
     } catch (err: any) {
       setError(err.message);
@@ -79,7 +143,30 @@ export default function ItemEdit() {
         </div>
       </div>
       <div className="body">
-        <div className="field" style={{ marginTop: 0 }}>
+        <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 4 }}>
+          {shownPhoto ? (
+            <img src={shownPhoto} alt="Product" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 14, flexShrink: 0 }} />
+          ) : (
+            <div style={{ width: 96, height: 96, borderRadius: 14, background: 'var(--chip)', color: 'var(--muted)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              No photo
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, alignItems: 'flex-start' }}>
+            <label className="btn small" style={{ cursor: photoBusy ? 'default' : 'pointer', opacity: photoBusy ? 0.6 : 1 }}>
+              <CameraIcon /> {shownPhoto ? 'Retake photo' : 'Take photo'}
+              <input type="file" accept="image/*" capture="environment" onChange={onPhoto} disabled={photoBusy} className="sr-only" />
+            </label>
+            <button type="button" className="link-btn" style={{ padding: 0 }} onClick={suggestName} disabled={!shownPhoto || photoBusy}>
+              {photoBusy ? 'Working…' : 'Suggest name from photo'}
+            </button>
+            {shownPhoto && (
+              <button type="button" className="link-btn" style={{ padding: 0, color: 'var(--danger)' }} onClick={removePhoto}>Remove photo</button>
+            )}
+          </div>
+        </div>
+        {photoNote && <p className="muted small" style={{ marginTop: 8, lineHeight: 1.5 }}>{photoNote}</p>}
+
+        <div className="field">
           <label htmlFor="name">Name</label>
           <input id="name" className="input" value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="Atta flour" />
         </div>

@@ -1,12 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, fmtQty, Line, Week, weekendLabel } from '../api';
-import { Back, Loading, Stepper } from '../ui';
+import { Back, LangToggle, Loading, Stepper } from '../ui';
+import { productName, useLang } from '../lang';
 
 type ListData = { week: Week; lines: Line[] };
 
 export default function List() {
   const nav = useNavigate();
+  const lang = useLang();
   const [data, setData] = useState<ListData | null>(null);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -79,7 +81,10 @@ export default function List() {
       <div className="header">
         <div className="topbar">
           <Back />
-          <span className={`tag ${sent ? 'ok' : 'low'}`} style={{ fontSize: 12, padding: '4px 10px' }}>{sent ? 'Sent' : 'Draft · due Thu'}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className={`tag ${sent ? 'ok' : 'low'}`} style={{ fontSize: 12, padding: '4px 10px' }}>{sent ? 'Sent' : 'Draft · due Thu'}</span>
+            <LangToggle lang={lang} />
+          </span>
         </div>
         <h1>List for {weekendLabel(week.serviceDate).replace('Sat–Sun, ', '')}</h1>
         <p className="muted">
@@ -106,7 +111,7 @@ export default function List() {
           <div key={l.id} className={`row${l.removed ? ' dim' : ''}`}>
             <div className="grow">
               <span className="name">
-                {l.name}
+                {productName(l, lang)}
                 {!l.removed && l.qty !== l.suggested && <span className="tag info">Edited</span>}
               </span>
               <span className="muted small">{l.removed ? 'Removed from this week' : `${l.reason} · suggested ${fmtQty(l.suggested)}`}</span>
@@ -127,7 +132,7 @@ export default function List() {
         {oneOffs.map((l) => (
           <div key={l.id} className="row">
             <div className="grow">
-              <span className="name">{l.name}</span>
+              <span className="name">{productName(l, lang)}</span>
               <span className="muted small">{l.reason}</span>
             </div>
             <Stepper label={l.name} min={1} value={l.qty} onChange={(v) => patch(l.id, { qty: v })} />

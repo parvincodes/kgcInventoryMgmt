@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, Item, LOCATIONS } from '../api';
-import { Back, CameraIcon, Chevron, Loading } from '../ui';
+import { Back, CameraIcon, Chevron, LangToggle, Loading } from '../ui';
+import { productName, useLang } from '../lang';
 
 export default function Catalog() {
+  const lang = useLang();
   const [items, setItems] = useState<Item[] | null>(null);
   const [filter, setFilter] = useState<string>('All');
   const [q, setQ] = useState('');
@@ -23,9 +25,12 @@ export default function Catalog() {
       <div className="header">
         <div className="topbar">
           <Back />
-          <Link to="/scan" className="btn small" style={{ textDecoration: 'none' }}>
-            <CameraIcon /> Add by photo
-          </Link>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <LangToggle lang={lang} />
+            <Link to="/scan" className="btn small" style={{ textDecoration: 'none' }}>
+              <CameraIcon /> Add by photo
+            </Link>
+          </span>
         </div>
         <h1>Item catalog</h1>
         <label htmlFor="q" className="sr-only">Search items</label>
@@ -46,9 +51,14 @@ export default function Catalog() {
         )}
         {shown.map((it) => (
           <Link key={it.id} to={`/catalog/${it.id}`} className="row" style={{ textDecoration: 'none', color: 'inherit' }}>
+            {it.hasPhoto ? (
+              <img src={`/api/items/${it.id}/photo`} alt="" loading="lazy" style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <span aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--chip)', flexShrink: 0 }} />
+            )}
             <span className="grow">
               <span className="name">
-                {it.name}
+                {productName(it, lang)}
                 {it.needsSetup && <span className="tag low">Set min/target</span>}
               </span>
               <span className="muted small">
