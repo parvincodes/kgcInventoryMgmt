@@ -4,3 +4,7 @@ data/*.db*
 data/product-images/
 .env
 .DS_Store
+tests/photos/inbox/
+tests/photos/converted/
+tests/photos/crops/IMG_*/
+tests/photos/crops/inbox-*
