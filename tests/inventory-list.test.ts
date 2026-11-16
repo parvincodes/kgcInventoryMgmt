@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { addItem, countAll, get, post, put, del, resetDb, serve, signIn, Session, PROD_PIN } from './helpers.js';
+import { addItem, countAll, get, post, put, del, resetDb, serve, signIn, Session, PROD } from './helpers.js';
 
 let s: Session;
 
@@ -11,7 +11,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetDb();
-  s = await signIn(PROD_PIN, 'Harpreet');
+  s = await signIn(PROD);
   await addItem(s, { name: 'Atta', location: 'Kitchen', unit: 'bags', mode: 'num', min: 5, target: 10, currentNum: 2 });
   await addItem(s, { name: 'Rice', location: 'Shelves', unit: 'bags', mode: 'num', min: 3, target: 6, currentNum: 5 });
   await addItem(s, { name: 'Ghee', location: 'Fridge', unit: 'jars', mode: 'lvl', currentLevel: 'Low' });

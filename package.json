@@ -14,7 +14,8 @@
     "serve": "tsx server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:photos": "RUN_PHOTO_TESTS=1 vitest run tests/photos.live.test.ts"
+    "test:photos": "RUN_PHOTO_TESTS=1 vitest run tests/photos.live.test.ts",
+    "add-person": "tsx scripts/add-person.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",

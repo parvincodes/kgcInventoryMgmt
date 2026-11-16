@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { addItem, api, baseUrl, del, get, put, resetDb, serve, signIn, Session, PROD_PIN, TEST_PIN } from './helpers.js';
+import { addItem, api, baseUrl, del, get, put, resetDb, serve, signIn, Session, PROD, TEST } from './helpers.js';
 
 // Bytes that start like a JPEG (FF D8 FF). The server only checks the header, so this is enough for tests.
 const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
@@ -16,8 +16,8 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetDb();
-  prod = await signIn(PROD_PIN, 'Harpreet');
-  test = await signIn(TEST_PIN, 'Harpreet');
+  prod = await signIn(PROD);
+  test = await signIn(TEST);
 });
 
 describe('product photos', () => {

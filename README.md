@@ -24,7 +24,7 @@ You need **Node.js 20 or newer** (`node -v` to check; install from nodejs.org if
 git clone https://github.com/parvincodes/langar-pantry.git
 cd langar-pantry
 npm install
-cp .env.example .env      # then edit .env: set REVIEWER_PIN and SESSION_SECRET
+cp .env.example .env      # then edit .env: set PROD_PIN and TEST_PIN
 npm start
 ```
 

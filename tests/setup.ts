@@ -4,6 +4,7 @@ import os from 'node:os';
 import pg from 'pg';
 import { afterAll } from 'vitest';
 import { closeDb, migrate } from '../server/db.js';
+import { seedPeople } from './seed.js';
 
 // Tests only ever use a local Postgres. The hosted DATABASE_URL in .env is deliberately ignored here.
 const url = process.env.TEST_DATABASE_URL || `postgres://${os.userInfo().username}@localhost:5433/langar_test`;
@@ -21,12 +22,13 @@ await admin.end();
 
 process.env.DATABASE_URL = url;
 process.env.PG_SCHEMA = schema;
-process.env.REVIEWER_PIN = '1111';
-process.env.TEST_PIN = '2222';
 // Tests never call Claude. The photo-recognition suite opts in with RUN_PHOTO_TESTS=1.
 if (!process.env.RUN_PHOTO_TESTS) process.env.ANTHROPIC_API_KEY = '';
 
 await migrate();
+
+// Three test accounts: a production admin, a production reviewer, and a testing admin.
+await seedPeople();
 
 afterAll(async () => {
   await closeDb();

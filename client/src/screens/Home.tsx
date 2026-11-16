@@ -96,6 +96,15 @@ export default function Home({ me, onSignOut }: { me: Me; onSignOut: () => void 
             </span>
             <Chevron />
           </Link>
+          {me.role === 'admin' && (
+            <Link to="/people" className="nav-row">
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontWeight: 500 }}>People</span>
+                <span className="muted">Who can sign in, and their PINs</span>
+              </span>
+              <Chevron />
+            </Link>
+          )}
           <Link to="/scan" className="nav-row">
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontWeight: 500 }}>Add items by photo</span>

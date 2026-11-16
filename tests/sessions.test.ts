@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { sql } from '../server/db.js';
-import { baseUrl, get, post, resetDb, serve, signIn, PROD_PIN, TEST_PIN } from './helpers.js';
+import { baseUrl, get, post, resetDb, serve, signIn, PROD, TEST } from './helpers.js';
 
 const sessionId = (cookie: string) => cookie.split('=')[1];
 
@@ -16,21 +16,21 @@ beforeEach(async () => {
 
 describe('sign-in sessions', () => {
   it('gives each sign-in its own random session, not a shared secret', async () => {
-    const a = await signIn(PROD_PIN, 'Harpreet');
-    const b = await signIn(PROD_PIN, 'Harpreet');
+    const a = await signIn(PROD);
+    const b = await signIn(PROD);
     expect(sessionId(a.cookie)).not.toBe(sessionId(b.cookie));
     expect(sessionId(a.cookie).length).toBeGreaterThanOrEqual(32);
   });
 
   it('remembers who signed in and which catalog their PIN opened', async () => {
-    const s = await signIn(TEST_PIN, 'Parvin');
+    const s = await signIn(TEST);
     const me = await get(s, '/api/me');
-    expect(me.body).toMatchObject({ name: 'Parvin', catalog: 'test', testing: true });
+    expect(me.body).toMatchObject({ name: 'Test Admin', catalog: 'test', role: 'admin', testing: true });
   });
 
   it('keeps the session for about eight hours', async () => {
     const before = Date.now();
-    const s = await signIn(PROD_PIN, 'Harpreet');
+    const s = await signIn(PROD);
     const row = (await sql('SELECT expires_at FROM sessions WHERE id = $1', [sessionId(s.cookie)])).rows[0];
     const eightHours = 8 * 60 * 60 * 1000;
     const remaining = new Date(row.expires_at).getTime() - before;
@@ -39,7 +39,7 @@ describe('sign-in sessions', () => {
   });
 
   it('refuses a session once it has expired', async () => {
-    const s = await signIn(PROD_PIN, 'Harpreet');
+    const s = await signIn(PROD);
     expect((await get(s, '/api/items')).status).toBe(200);
     await sql('UPDATE sessions SET expires_at = $1 WHERE id = $2', [new Date(Date.now() - 1000), sessionId(s.cookie)]);
     expect((await get(s, '/api/items')).status).toBe(401);
@@ -47,7 +47,7 @@ describe('sign-in sessions', () => {
   });
 
   it('ends a session immediately on sign-out, even if the cookie is kept', async () => {
-    const s = await signIn(PROD_PIN, 'Harpreet');
+    const s = await signIn(PROD);
     await post(s, '/api/logout');
     expect((await get(s, '/api/items')).status).toBe(401);
   });
@@ -61,9 +61,9 @@ describe('sign-in sessions', () => {
   });
 
   it('removes expired sessions when someone signs in again', async () => {
-    const s = await signIn(PROD_PIN, 'Harpreet');
+    const s = await signIn(PROD);
     await sql('UPDATE sessions SET expires_at = $1 WHERE id = $2', [new Date(Date.now() - 1000), sessionId(s.cookie)]);
-    await signIn(PROD_PIN, 'Someone else');
+    await signIn(PROD);
     const left = (await sql('SELECT COUNT(*) AS n FROM sessions WHERE id = $1', [sessionId(s.cookie)])).rows[0].n;
     expect(left).toBe(0);
   });

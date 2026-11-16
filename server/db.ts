@@ -122,6 +122,19 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL
 );
+CREATE TABLE IF NOT EXISTS people (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'reviewer')),
+  catalog TEXT NOT NULL CHECK (catalog IN ('prod', 'test')),
+  pin_hash TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS person_id BIGINT REFERENCES people(id) ON DELETE CASCADE;
 `;
 
 /** Creates any missing tables. Safe to run on every start. */
@@ -160,6 +173,18 @@ export type Week = {
   approved_at: Date | null;
   note: string;
   share_token: string;
+};
+
+export type Person = {
+  id: number;
+  name: string;
+  phone: string;
+  role: 'admin' | 'reviewer';
+  catalog: Catalog;
+  pin_hash: string;
+  active: boolean;
+  failed_count: number;
+  locked_until: Date | null;
 };
 
 export type ListLine = {

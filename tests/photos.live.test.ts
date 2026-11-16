@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { post, serve, signIn, Session, PROD_PIN } from './helpers.js';
+import { post, serve, signIn, Session, PROD } from './helpers.js';
 
 /**
  * Live test: sends each photo in tests/photos/manifest.json to Claude and checks the expected items came back.
@@ -30,7 +30,7 @@ describe.skipIf(!live)('photo recognition (live Claude)', () => {
 
   beforeAll(async () => {
     await serve.startServer();
-    s = await signIn(PROD_PIN, 'Photo test');
+    s = await signIn(PROD);
   });
   afterAll(async () => {
     await serve.stopServer();

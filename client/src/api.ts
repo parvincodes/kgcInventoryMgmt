@@ -37,6 +37,7 @@ export type Item = {
 /** Who is signed in, and which catalog their PIN opened. */
 export type Me = {
   name: string;
+  role: 'admin' | 'reviewer';
   catalog: 'prod' | 'test';
   catalogLabel: string;
   testing: boolean;

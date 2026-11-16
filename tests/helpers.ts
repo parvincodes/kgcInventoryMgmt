@@ -2,9 +2,12 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { app } from '../server/index.js';
 import { sql } from '../server/db.js';
+import { seedPeople } from './seed.js';
 
-export const PROD_PIN = '1111';
-export const TEST_PIN = '2222';
+/** Test accounts, created in setup.ts. */
+export const PROD = { phone: '202-555-0100', pin: '123456' };
+export const REVIEWER = { phone: '202-555-0102', pin: '111222' };
+export const TEST = { phone: '202-555-0101', pin: '654321' };
 
 let server: http.Server;
 let base = '';
@@ -21,16 +24,17 @@ export async function stopServer() {
 
 /** Empty every table and restart id counting, so tests can rely on ids. Call in beforeEach. */
 export async function resetDb() {
-  await sql('TRUNCATE items, weeks, count_entries, list_lines, sessions RESTART IDENTITY CASCADE');
+  await sql('TRUNCATE items, weeks, count_entries, list_lines, sessions, people RESTART IDENTITY CASCADE');
+  await seedPeople();
 }
 
 export type Session = { cookie: string };
 
-export async function signIn(pin: string, name = 'Tester'): Promise<Session> {
+export async function signIn(account: { phone: string; pin: string }): Promise<Session> {
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, pin })
+    body: JSON.stringify(account)
   });
   if (!res.ok) throw new Error(`sign-in failed: ${res.status}`);
   const cookie = res.headers

@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Catalog, CATALOGS, CATALOG_IDS, ITEM_COLS, Item, LEVELS, LOCATIONS, ListLine, migrate, sql, tx, Week } from './db.js';
+import { Catalog, CATALOGS, ITEM_COLS, Item, LEVELS, LOCATIONS, ListLine, migrate, Person, sql, tx, Week } from './db.js';
+import { addPerson, checkPin, LOCK_ATTEMPTS, LOCK_MINUTES, normalizePhone, Role, validPin, hashPin } from './people.js';
 import {
   activeItems,
   getOrCreateWeek,
@@ -25,19 +26,12 @@ declare global {
     interface Request {
       reviewer?: string;
       catalog?: Catalog;
+      role?: Role;
     }
   }
 }
 
 const PORT = Number(process.env.PORT || 3000);
-const PROD_PIN = process.env.REVIEWER_PIN || '1234';
-const TEST_PIN = process.env.TEST_PIN || '';
-if (!process.env.REVIEWER_PIN) console.warn('⚠  REVIEWER_PIN is not set. Using 1234. Set it in .env before sharing.');
-if (!TEST_PIN) console.warn('ℹ  TEST_PIN is not set, so the Testing catalog is locked. Set it in .env to use it.');
-else if (TEST_PIN === PROD_PIN) console.warn('⚠  TEST_PIN matches REVIEWER_PIN. Use two different PINs; the production catalog wins for now.');
-
-/** Which PIN opens which catalog. An unset test PIN opens nothing. */
-const PINS: Record<Catalog, string | null> = { prod: PROD_PIN, test: TEST_PIN || null };
 
 const app = express();
 app.use(express.json({ limit: '12mb' }));
@@ -47,13 +41,17 @@ app.use(cookieParser());
 const SESSION_COOKIE = 'session';
 const SESSION_MS = Number(process.env.SESSION_HOURS || 8) * 60 * 60 * 1000;
 
-type SessionRow = { id: string; name: string; catalog: Catalog };
+type SessionRow = { id: string; name: string; catalog: Catalog; role: Role };
 
-/** The signed-in session for this request, or null. Expired sessions never match. */
+/** The signed-in session for this request, or null. Expired sessions never match, and deactivated people lose access at once. */
 async function currentSession(req: Request): Promise<SessionRow | null> {
   const id = req.cookies?.[SESSION_COOKIE];
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{32,64}$/.test(id)) return null;
-  const r = await sql('SELECT id, name, catalog FROM sessions WHERE id = $1 AND expires_at > now()', [id]);
+  const r = await sql(
+    `SELECT p.name, p.catalog, p.role, s.id FROM sessions s JOIN people p ON p.id = s.person_id
+     WHERE s.id = $1 AND s.expires_at > now() AND p.active`,
+    [id]
+  );
   return (r.rows[0] as SessionRow) ?? null;
 }
 const requireReviewer = async (req: Request, res: Response, next: NextFunction) => {
@@ -61,15 +59,21 @@ const requireReviewer = async (req: Request, res: Response, next: NextFunction) 
   if (!s) return res.status(401).json({ error: 'Sign in first.' });
   req.reviewer = s.name;
   req.catalog = s.catalog;
+  req.role = s.role;
+  next();
+};
+/** Only admins: approving the list, removing items, and managing people. */
+const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  const s = await currentSession(req);
+  if (!s) return res.status(401).json({ error: 'Sign in first.' });
+  if (s.role !== 'admin') return res.status(403).json({ error: 'Only an admin can do that.' });
+  req.reviewer = s.name;
+  req.catalog = s.catalog;
+  req.role = s.role;
   next();
 };
 const num = (v: unknown): number | null => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
 const str = (v: unknown, max = 120) => String(v ?? '').trim().slice(0, max);
-const pinMatches = (pin: string, expected: string) => {
-  const a = Buffer.from(pin);
-  const b = Buffer.from(expected);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-};
 /** Wraps an async route so an unexpected error reaches the error handler instead of hanging the request. */
 const route = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) =>
   fn(req, res).catch(next);
@@ -131,8 +135,8 @@ async function weekView(catalog: Catalog) {
     boughtCount: lines.filter((l) => l.bought).length
   };
 }
-function meView(name: string, catalog: Catalog) {
-  return { name, catalog, catalogLabel: CATALOGS[catalog].label, testing: catalog === 'test' };
+function meView(name: string, catalog: Catalog, role: Role) {
+  return { name, catalog, role, catalogLabel: CATALOGS[catalog].label, testing: catalog === 'test' };
 }
 
 // ---------- auth ----------
@@ -141,29 +145,43 @@ const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, secure: process.
 
 app.get('/api/me', route(async (req, res) => {
   const s = await currentSession(req);
-  res.json(s ? meView(s.name, s.catalog) : { name: null });
+  res.json(s ? meView(s.name, s.catalog, s.role) : { name: null });
 }));
 
 app.post('/api/login', route(async (req, res) => {
-  const pin = str(req.body?.pin, 40);
-  const name = str(req.body?.name, 40) || 'Reviewer';
-  // Production is checked first, so a PIN that matches both opens production.
-  const catalog = CATALOG_IDS.find((c) => {
-    const expected = PINS[c];
-    return expected != null && pinMatches(pin, expected);
-  });
-  if (!catalog) return res.status(401).json({ error: "That PIN didn't match." });
-  // A random ID, not data: the server keeps who signed in and which catalog, for SESSION_MS.
+  const phone = normalizePhone(str(req.body?.phone, 30));
+  const pin = str(req.body?.pin, 12);
+  if (!phone || !pin) return res.status(401).json({ error: "That phone and PIN didn't match." });
+  const person = (await sql('SELECT * FROM people WHERE phone = $1 AND active', [phone])).rows[0] as Person | undefined;
+  // Same message for an unknown number and a wrong PIN, so the form doesn't reveal who is on the list.
+  if (!person) return res.status(401).json({ error: "That phone and PIN didn't match." });
+  if (person.locked_until && new Date(person.locked_until) > new Date()) {
+    return res.status(429).json({ error: `Too many tries. Wait ${LOCK_MINUTES} minutes, or ask an admin to unlock you.` });
+  }
+  if (!validPin(pin) || !checkPin(pin, person.pin_hash)) {
+    // Count the miss. After enough misses in a row, lock the person out for a while.
+    await sql(
+      `UPDATE people SET
+         failed_count = CASE WHEN failed_count + 1 >= $2 THEN 0 ELSE failed_count + 1 END,
+         locked_until = CASE WHEN failed_count + 1 >= $2 THEN now() + ($3 || ' minutes')::interval ELSE locked_until END
+       WHERE id = $1`,
+      [person.id, LOCK_ATTEMPTS, String(LOCK_MINUTES)]
+    );
+    return res.status(401).json({ error: "That phone and PIN didn't match." });
+  }
+  await sql('UPDATE people SET failed_count = 0, locked_until = NULL WHERE id = $1', [person.id]);
+  // A random ID, not data: the server keeps who signed in and their role, for SESSION_MS.
   const id = crypto.randomBytes(32).toString('base64url');
   await sql('DELETE FROM sessions WHERE expires_at <= now()');
-  await sql('INSERT INTO sessions (id, name, catalog, expires_at) VALUES ($1, $2, $3, $4)', [
+  await sql('INSERT INTO sessions (id, name, catalog, person_id, expires_at) VALUES ($1, $2, $3, $4, $5)', [
     id,
-    name,
-    catalog,
+    person.name,
+    person.catalog,
+    person.id,
     new Date(Date.now() + SESSION_MS)
   ]);
   res.cookie(SESSION_COOKIE, id, { ...COOKIE_OPTS, maxAge: SESSION_MS });
-  res.json(meView(name, catalog));
+  res.json(meView(person.name, person.catalog, person.role));
 }));
 
 app.post('/api/logout', route(async (req, res) => {
@@ -273,7 +291,7 @@ app.post('/api/identify', requireReviewer, route(async (req, res) => {
   }
 }));
 
-app.delete('/api/items/:id', requireReviewer, route(async (req, res) => {
+app.delete('/api/items/:id', requireAdmin, route(async (req, res) => {
   await sql('UPDATE items SET active = 0, updated_at = now() WHERE id = $1 AND catalog = $2', [Number(req.params.id), req.catalog]);
   res.json({ ok: true });
 }));
@@ -388,7 +406,7 @@ app.put('/api/list/note', requireReviewer, route(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.post('/api/list/approve', requireReviewer, route(async (req, res) => {
+app.post('/api/list/approve', requireAdmin, route(async (req, res) => {
   const w = await getOrCreateWeek(sql, req.catalog!);
   await sql('UPDATE weeks SET approved_at = COALESCE(approved_at, now()), approved_by = $1 WHERE id = $2', [req.reviewer ?? null, w.id]);
   res.json(await weekView(req.catalog!));
@@ -468,6 +486,55 @@ app.post('/api/scan/save', requireReviewer, route(async (req, res) => {
   res.json({ added, updated });
 }));
 
+// ---------- people (admins only) ----------
+const PEOPLE_COLS = 'id, name, phone, role, catalog, active, failed_count, locked_until';
+const ROLES: Role[] = ['admin', 'reviewer'];
+
+app.get('/api/people', requireAdmin, route(async (_req, res) => {
+  const rows = (await sql(`SELECT ${PEOPLE_COLS} FROM people ORDER BY active DESC, lower(name)`)).rows;
+  res.json(rows.map((p) => ({ ...p, locked: !!p.locked_until && new Date(p.locked_until) > new Date() })));
+}));
+
+app.post('/api/people', requireAdmin, route(async (req, res) => {
+  const name = str(req.body?.name, 60);
+  const phone = normalizePhone(str(req.body?.phone, 30));
+  const role = ROLES.includes(req.body?.role) ? (req.body.role as Role) : 'reviewer';
+  const catalog: Catalog = req.body?.catalog === 'test' ? 'test' : 'prod';
+  const pin = str(req.body?.pin, 12);
+  if (!name) return res.status(400).json({ error: 'Enter a name.' });
+  if (!phone) return res.status(400).json({ error: 'Enter a US phone number, with the area code.' });
+  if (!validPin(pin)) return res.status(400).json({ error: 'The PIN must be 4 to 8 digits.' });
+  if ((await sql('SELECT 1 FROM people WHERE phone = $1', [phone])).rowCount) {
+    return res.status(409).json({ error: 'That phone number is already on the list.' });
+  }
+  const id = await addPerson({ name, phone, role, catalog, pin });
+  res.json((await sql(`SELECT ${PEOPLE_COLS} FROM people WHERE id = $1`, [id])).rows[0]);
+}));
+
+app.put('/api/people/:id', requireAdmin, route(async (req, res) => {
+  const id = Number(req.params.id);
+  const p = (await sql('SELECT * FROM people WHERE id = $1', [id])).rows[0] as Person | undefined;
+  if (!p) return res.status(404).json({ error: 'Person not found.' });
+  const isSelf = ((await sql('SELECT 1 FROM sessions s WHERE s.person_id = $1 AND s.id = $2', [id, req.cookies?.[SESSION_COOKIE]])).rowCount ?? 0) > 0;
+  const role: Role = ROLES.includes(req.body?.role) ? (req.body.role as Role) : p.role;
+  const active = typeof req.body?.active === 'boolean' ? req.body.active : p.active;
+  // Don't let the last way in be removed: nobody can demote or deactivate their own account.
+  if (isSelf && (role !== p.role || !active)) {
+    return res.status(400).json({ error: "You can't demote or deactivate your own account." });
+  }
+  const catalog: Catalog = req.body?.catalog === 'test' || req.body?.catalog === 'prod' ? req.body.catalog : p.catalog;
+  await sql('UPDATE people SET role = $1, active = $2, catalog = $3 WHERE id = $4', [role, active, catalog, id]);
+  if (req.body?.pin != null && req.body.pin !== '') {
+    const pin = str(req.body.pin, 12);
+    if (!validPin(pin)) return res.status(400).json({ error: 'The PIN must be 4 to 8 digits.' });
+    await sql('UPDATE people SET pin_hash = $1, failed_count = 0, locked_until = NULL WHERE id = $2', [hashPin(pin), id]);
+  }
+  if (req.body?.unlock === true) await sql('UPDATE people SET failed_count = 0, locked_until = NULL WHERE id = $1', [id]);
+  // Deactivated people lose their sessions straight away.
+  if (!active) await sql('DELETE FROM sessions WHERE person_id = $1', [id]);
+  res.json((await sql(`SELECT ${PEOPLE_COLS} FROM people WHERE id = $1`, [id])).rows[0]);
+}));
+
 // ---------- UI ----------
 const clientDir = path.resolve(process.cwd(), 'dist/client');
 if (fs.existsSync(clientDir)) {
@@ -499,7 +566,7 @@ if (isMain) {
         console.log(`\nLangar Pantry is running.`);
         console.log(`  On this computer:  http://localhost:${PORT}`);
         for (const ip of ips) console.log(`  On your phone:     http://${ip}:${PORT}   (same Wi-Fi)`);
-        console.log(`  Catalogs:          ${CATALOGS.prod.label} (REVIEWER_PIN) · ${CATALOGS.test.label} (TEST_PIN${TEST_PIN ? '' : ', not set'})`);
+        console.log('  Sign-in: people on the allow list, each with a personal PIN.');
         if (!process.env.ANTHROPIC_API_KEY) console.log('  Add by photo: demo mode (set ANTHROPIC_API_KEY in .env for real photo reading)');
         console.log('');
       });

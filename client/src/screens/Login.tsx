@@ -2,23 +2,24 @@ import { FormEvent, useState } from 'react';
 import { api, Me } from '../api';
 
 export default function Login({ onSignedIn }: { onSignedIn: (me: Me) => void }) {
-  const [name, setName] = useState(() => localStorage.getItem('reviewerName') || '');
+  const [phone, setPhone] = useState(() => localStorage.getItem('reviewerPhone') || '');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return setError('Enter your name.');
-    if (!pin) return setError('Enter the reviewer PIN.');
+    if (!phone.trim()) return setError('Enter your phone number.');
+    if (!pin) return setError('Enter your PIN.');
     setBusy(true);
     setError('');
     try {
-      const r = await api<Me>('/api/login', { body: { name: name.trim(), pin } });
-      localStorage.setItem('reviewerName', r.name);
+      const r = await api<Me>('/api/login', { body: { phone: phone.trim(), pin } });
+      localStorage.setItem('reviewerPhone', phone.trim());
       onSignedIn(r);
     } catch (err: any) {
       setError(err.message);
+      setPin('');
     } finally {
       setBusy(false);
     }
@@ -39,11 +40,11 @@ export default function Login({ onSignedIn }: { onSignedIn: (me: Me) => void }) 
         <p className="muted" style={{ fontSize: 16, lineHeight: 1.5 }}>Know what's on the shelves before anyone goes shopping.</p>
         <div>
           <div className="field">
-            <label htmlFor="name">Your name</label>
-            <input id="name" className="input" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Harpreet" />
+            <label htmlFor="phone">Mobile number</label>
+            <input id="phone" className="input" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setError(''); }} placeholder="202-555-0100" />
           </div>
           <div className="field">
-            <label htmlFor="pin">Reviewer PIN</label>
+            <label htmlFor="pin">Your PIN</label>
             <input id="pin" className="input" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(e) => { setPin(e.target.value); setError(''); }} />
           </div>
           {error && <p className="error">{error}</p>}
@@ -51,8 +52,8 @@ export default function Login({ onSignedIn }: { onSignedIn: (me: Me) => void }) 
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
         <button className="btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        <p className="muted center">Only reviewers sign in. Sewa families get a link to their list each week.</p>
-        <p className="muted small center">The production PIN opens the Khalsa Gurmat School catalog. The testing PIN opens test data only.</p>
+        <p className="muted center">Only people on the list can sign in. Ask an admin for your PIN.</p>
+        <p className="muted small center">Sewa families get a link to their list each week. No sign-in needed.</p>
       </div>
     </form>
   );

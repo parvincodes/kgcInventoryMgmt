@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { addItem, api, del, get, post, put, resetDb, serve, signIn, Session, TEST_PIN, PROD_PIN } from './helpers.js';
+import { addItem, api, del, get, post, put, resetDb, serve, signIn, Session, TEST, PROD } from './helpers.js';
 
 const tinyJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='; // content is irrelevant in demo mode
 
@@ -14,8 +14,8 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await resetDb();
-  prod = await signIn(PROD_PIN, 'Harpreet');
-  test = await signIn(TEST_PIN, 'Harpreet');
+  prod = await signIn(PROD);
+  test = await signIn(TEST);
 });
 
 describe('building the catalog by hand', () => {
