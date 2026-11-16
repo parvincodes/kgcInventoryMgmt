@@ -1,12 +1,37 @@
 import 'dotenv/config';
-import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
-import path from 'node:path';
+import pg from 'pg';
+import { afterAll } from 'vitest';
+import { closeDb, migrate } from '../server/db.js';
 
-// Every test file gets a fresh database folder, fixed PINs, and no real Claude key.
-// The photo-recognition suite is the only one that calls Claude; it sets RUN_PHOTO_TESTS=1 to opt in.
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'langar-test-'));
+// Tests only ever use a local Postgres. The hosted DATABASE_URL in .env is deliberately ignored here.
+const url = process.env.TEST_DATABASE_URL || `postgres://${os.userInfo().username}@localhost:5433/langar_test`;
+const host = new URL(url).hostname;
+if (host !== 'localhost' && host !== '127.0.0.1') {
+  throw new Error(`Tests refuse to run against a non-local database (host "${host}"). Set TEST_DATABASE_URL to a local database.`);
+}
+
+// Each test file gets its own schema, so files can run in parallel without touching each other's rows.
+const schema = `t_${crypto.randomBytes(6).toString('hex')}`;
+const admin = new pg.Client({ connectionString: url });
+await admin.connect();
+await admin.query(`CREATE SCHEMA "${schema}"`);
+await admin.end();
+
+process.env.DATABASE_URL = url;
+process.env.PG_SCHEMA = schema;
 process.env.REVIEWER_PIN = '1111';
 process.env.TEST_PIN = '2222';
-process.env.SESSION_SECRET = 'test-secret';
+// Tests never call Claude. The photo-recognition suite opts in with RUN_PHOTO_TESTS=1.
 if (!process.env.RUN_PHOTO_TESTS) process.env.ANTHROPIC_API_KEY = '';
+
+await migrate();
+
+afterAll(async () => {
+  await closeDb();
+  const c = new pg.Client({ connectionString: url });
+  await c.connect();
+  await c.query(`DROP SCHEMA "${schema}" CASCADE`);
+  await c.end();
+});

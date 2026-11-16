@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { app } from '../server/index.js';
-import { CATALOG_IDS, dbFor } from '../server/db.js';
+import { sql } from '../server/db.js';
 
 export const PROD_PIN = '1111';
 export const TEST_PIN = '2222';
@@ -19,11 +19,9 @@ export async function stopServer() {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-/** Empty every table in both catalogs and restart id counting, so tests can rely on ids. Call in beforeEach. */
-export function resetDb() {
-  for (const c of CATALOG_IDS) {
-    dbFor(c).exec('DELETE FROM list_lines; DELETE FROM count_entries; DELETE FROM weeks; DELETE FROM items; DELETE FROM sqlite_sequence;');
-  }
+/** Empty every table and restart id counting, so tests can rely on ids. Call in beforeEach. */
+export async function resetDb() {
+  await sql('TRUNCATE items, weeks, count_entries, list_lines, sessions RESTART IDENTITY CASCADE');
 }
 
 export type Session = { cookie: string };

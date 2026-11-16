@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { Db } from './db.js';
 import { activeItems } from './logic.js';
 import { canonicalName, glossaryForPrompt, sameProduct } from './grocery-glossary.js';
+import { Catalog, Item, sql } from './db.js';
 
 export type ScanResult = {
   name: string;
@@ -20,8 +20,7 @@ const DEMO: Omit<ScanResult, 'matchId' | 'matchName'>[] = [
   { name: 'White tub, no label', unit: 'tubs', count: 1, confidence: 'low' }
 ];
 
-function matchCatalog(d: Db, name: string, location: string) {
-  const items = activeItems(d);
+function matchCatalog(items: Item[], name: string, location: string) {
   const hit =
     items.find((i) => sameProduct(i.name, name) && i.location === location) ??
     items.find((i) => sameProduct(i.name, name));
@@ -36,7 +35,7 @@ export async function identifyProduct(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return { demo: true, name: null, unit: '', confidence: 'low' };
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 });
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
   const prompt = `This photo shows one grocery product, close up, for a community (langar) kitchen pantry. Identify it.
 Reply with only a JSON object: {"name": string or null, "unit": string, "confidence": "high" or "low"}.
@@ -75,18 +74,22 @@ ${glossaryForPrompt()}`;
 }
 
 export async function scanPhoto(
-  d: Db,
+  catalog: Catalog,
   location: string,
   imageBase64: string,
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
 ): Promise<{ demo: boolean; results: ScanResult[] }> {
+  const items = await activeItems(sql, catalog);
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return { demo: true, results: DEMO.map((r) => ({ ...r, name: canonicalName(r.name), ...matchCatalog(d, r.name, location) })) };
+    return {
+      demo: true,
+      results: DEMO.map((r) => ({ ...r, name: canonicalName(r.name), ...matchCatalog(items, r.name, location) }))
+    };
   }
 
-  const catalog = activeItems(d).map((i) => `${i.id}: ${i.name} (${i.location}, ${i.unit || 'level'})`);
-  const client = new Anthropic({ apiKey });
+  const catalogLines = items.map((i) => `${i.id}: ${i.name} (${i.location}, ${i.unit || 'level'})`);
+  const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 2 });
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 
   const prompt = `This photo shows the "${location}" area of a community (langar) kitchen pantry.
@@ -101,7 +104,7 @@ Indian grocery glossary (canonical name, then other names people use for it):
 ${glossaryForPrompt()}
 
 Existing catalog:
-${catalog.length ? catalog.join('\n') : '(empty)'}
+${catalogLines.length ? catalogLines.join('\n') : '(empty)'}
 
 Reply with only a JSON array, no other text.`;
 
@@ -128,12 +131,12 @@ Reply with only a JSON array, no other text.`;
   if (start < 0 || end < start) throw new Error('The photo could not be read. Try again with better light.');
   const raw = JSON.parse(text.slice(start, end + 1)) as Array<Record<string, unknown>>;
 
-  const validIds = new Map(activeItems(d).map((i) => [i.id, i.name]));
+  const validIds = new Map(items.map((i) => [i.id, i.name]));
   const results: ScanResult[] = raw
     .filter((r) => typeof r.name === 'string' && (r.name as string).trim())
     .map((r) => {
       const id = typeof r.matchId === 'number' && validIds.has(r.matchId) ? r.matchId : null;
-      const fallback = id == null ? matchCatalog(d, String(r.name), location) : null;
+      const fallback = id == null ? matchCatalog(items, String(r.name), location) : null;
       return {
         name: canonicalName(String(r.name)),
         unit: typeof r.unit === 'string' ? r.unit : '',

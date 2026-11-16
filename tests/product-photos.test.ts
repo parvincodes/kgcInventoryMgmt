@@ -15,7 +15,7 @@ afterAll(async () => {
   await serve.stopServer();
 });
 beforeEach(async () => {
-  resetDb();
+  await resetDb();
   prod = await signIn(PROD_PIN, 'Harpreet');
   test = await signIn(TEST_PIN, 'Harpreet');
 });

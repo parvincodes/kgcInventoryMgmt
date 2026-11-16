@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { authDb, Catalog, CATALOGS, CATALOG_IDS, Db, dbFor, Item, LEVELS, LOCATIONS, ListLine, Week } from './db.js';
+import { Catalog, CATALOGS, CATALOG_IDS, ITEM_COLS, Item, LEVELS, LOCATIONS, ListLine, migrate, sql, tx, Week } from './db.js';
 import {
   activeItems,
   getOrCreateWeek,
@@ -17,7 +17,7 @@ import {
   weekStatus
 } from './logic.js';
 import { identifyProduct, scanPhoto } from './scan.js';
-import { deletePhoto, photoPath, readPhotoBase64, savePhoto } from './product-photos.js';
+import { photoBytes } from './product-photos.js';
 import { canonicalName, punjabiName } from './grocery-glossary.js';
 
 declare global {
@@ -25,7 +25,6 @@ declare global {
     interface Request {
       reviewer?: string;
       catalog?: Catalog;
-      db?: Db;
     }
   }
 }
@@ -48,26 +47,20 @@ app.use(cookieParser());
 const SESSION_COOKIE = 'session';
 const SESSION_MS = Number(process.env.SESSION_HOURS || 8) * 60 * 60 * 1000;
 
-type SessionRow = { id: string; name: string; catalog: Catalog; expires_at: number };
+type SessionRow = { id: string; name: string; catalog: Catalog };
 
-/** The signed-in session for this request, or null. Expired sessions are removed when found. */
-function currentSession(req: Request): SessionRow | null {
+/** The signed-in session for this request, or null. Expired sessions never match. */
+async function currentSession(req: Request): Promise<SessionRow | null> {
   const id = req.cookies?.[SESSION_COOKIE];
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{32,64}$/.test(id)) return null;
-  const s = authDb.prepare('SELECT id, name, catalog, expires_at FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
-  if (!s) return null;
-  if (s.expires_at <= Date.now()) {
-    authDb.prepare('DELETE FROM sessions WHERE id = ?').run(id);
-    return null;
-  }
-  return s;
+  const r = await sql('SELECT id, name, catalog FROM sessions WHERE id = $1 AND expires_at > now()', [id]);
+  return (r.rows[0] as SessionRow) ?? null;
 }
-const requireReviewer = (req: Request, res: Response, next: NextFunction) => {
-  const s = currentSession(req);
+const requireReviewer = async (req: Request, res: Response, next: NextFunction) => {
+  const s = await currentSession(req);
   if (!s) return res.status(401).json({ error: 'Sign in first.' });
   req.reviewer = s.name;
   req.catalog = s.catalog;
-  req.db = dbFor(s.catalog);
   next();
 };
 const num = (v: unknown): number | null => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -77,6 +70,9 @@ const pinMatches = (pin: string, expected: string) => {
   const b = Buffer.from(expected);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
+/** Wraps an async route so an unexpected error reaches the error handler instead of hanging the request. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) =>
+  fn(req, res).catch(next);
 
 function itemView(it: Item) {
   return {
@@ -93,7 +89,7 @@ function itemView(it: Item) {
     currentLevel: it.current_level,
     needsSetup: needsSetup(it),
     belowMin: isBelowMin(it),
-    hasPhoto: !!it.image_file
+    hasPhoto: !!it.has_photo
   };
 }
 function lineView(l: ListLine) {
@@ -112,15 +108,15 @@ function lineView(l: ListLine) {
     boughtQty: l.bought_qty
   };
 }
-function weekView(d: Db) {
-  const w = getOrCreateWeek(d);
-  const items = activeItems(d);
-  const counted = (d.prepare('SELECT COUNT(*) AS n FROM count_entries WHERE week_id = ?').get(w.id) as { n: number }).n;
-  const lines = listLines(d, w.id).filter((l) => !l.removed);
+async function weekView(catalog: Catalog) {
+  const w = await getOrCreateWeek(sql, catalog);
+  const items = await activeItems(sql, catalog);
+  const counted = (await sql('SELECT COUNT(*) AS n FROM count_entries WHERE week_id = $1', [w.id])).rows[0].n as number;
+  const lines = (await listLines(sql, w.id)).filter((l) => !l.removed);
   return {
     id: w.id,
     serviceDate: w.service_date,
-    status: weekStatus(d, w),
+    status: await weekStatus(sql, w),
     countedBy: w.counted_by,
     countFinishedAt: w.count_finished_at,
     approvedBy: w.approved_by,
@@ -139,25 +135,16 @@ function meView(name: string, catalog: Catalog) {
   return { name, catalog, catalogLabel: CATALOGS[catalog].label, testing: catalog === 'test' };
 }
 
-/** Family links carry no catalog, so look the token up in each catalog. Tokens are random and unique. */
-function findFamilyWeek(token: string): { d: Db; w: Week; catalog: Catalog } | null {
-  for (const catalog of CATALOG_IDS) {
-    const d = dbFor(catalog);
-    const w = d.prepare('SELECT * FROM weeks WHERE share_token = ?').get(token) as Week | undefined;
-    if (w) return { d, w, catalog };
-  }
-  return null;
-}
-
 // ---------- auth ----------
 // Secure cookies need HTTPS. Set COOKIE_SECURE=1 once the app is served over HTTPS.
 const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, secure: process.env.COOKIE_SECURE === '1' };
 
-app.get('/api/me', (req, res) => {
-  const s = currentSession(req);
+app.get('/api/me', route(async (req, res) => {
+  const s = await currentSession(req);
   res.json(s ? meView(s.name, s.catalog) : { name: null });
-});
-app.post('/api/login', (req, res) => {
+}));
+
+app.post('/api/login', route(async (req, res) => {
   const pin = str(req.body?.pin, 40);
   const name = str(req.body?.name, 40) || 'Reviewer';
   // Production is checked first, so a PIN that matches both opens production.
@@ -168,21 +155,28 @@ app.post('/api/login', (req, res) => {
   if (!catalog) return res.status(401).json({ error: "That PIN didn't match." });
   // A random ID, not data: the server keeps who signed in and which catalog, for SESSION_MS.
   const id = crypto.randomBytes(32).toString('base64url');
-  const now = Date.now();
-  authDb.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
-  authDb.prepare('INSERT INTO sessions (id, name, catalog, created_at, expires_at) VALUES (?, ?, ?, ?, ?)').run(id, name, catalog, now, now + SESSION_MS);
+  await sql('DELETE FROM sessions WHERE expires_at <= now()');
+  await sql('INSERT INTO sessions (id, name, catalog, expires_at) VALUES ($1, $2, $3, $4)', [
+    id,
+    name,
+    catalog,
+    new Date(Date.now() + SESSION_MS)
+  ]);
   res.cookie(SESSION_COOKIE, id, { ...COOKIE_OPTS, maxAge: SESSION_MS });
   res.json(meView(name, catalog));
-});
-app.post('/api/logout', (req, res) => {
+}));
+
+app.post('/api/logout', route(async (req, res) => {
   const id = req.cookies?.[SESSION_COOKIE];
-  if (typeof id === 'string') authDb.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  if (typeof id === 'string') await sql('DELETE FROM sessions WHERE id = $1', [id]);
   res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
   res.json({ ok: true });
-});
+}));
 
 // ---------- items ----------
-app.get('/api/items', requireReviewer, (req, res) => res.json(activeItems(req.db!).map(itemView)));
+app.get('/api/items', requireReviewer, route(async (req, res) => {
+  res.json((await activeItems(sql, req.catalog!)).map(itemView));
+}));
 
 function readItemBody(b: any) {
   const location = LOCATIONS.includes(b.location) ? b.location : 'Shelves';
@@ -200,76 +194,74 @@ function readItemBody(b: any) {
   };
 }
 
-app.post('/api/items', requireReviewer, (req, res) => {
-  const d = req.db!;
+app.post('/api/items', requireReviewer, route(async (req, res) => {
   const b = readItemBody(req.body ?? {});
   if (!b.name) return res.status(400).json({ error: 'Enter a name.' });
-  const r = d
-    .prepare(
-      `INSERT INTO items (name, location, unit, mode, min_qty, target_qty, expiry_date, current_num, current_level)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, b.currentNum, b.currentLevel);
-  res.json(itemView(d.prepare('SELECT * FROM items WHERE id = ?').get(r.lastInsertRowid) as Item));
-});
+  const r = await sql(
+    `INSERT INTO items (catalog, name, location, unit, mode, min_qty, target_qty, expiry_date, current_num, current_level)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${ITEM_COLS}`,
+    [req.catalog, b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, b.currentNum, b.currentLevel]
+  );
+  res.json(itemView(r.rows[0] as Item));
+}));
 
-app.put('/api/items/:id', requireReviewer, (req, res) => {
-  const d = req.db!;
+app.put('/api/items/:id', requireReviewer, route(async (req, res) => {
   const id = Number(req.params.id);
-  const cur = d.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item | undefined;
+  const cur = (await sql(`SELECT ${ITEM_COLS} FROM items WHERE id = $1 AND catalog = $2`, [id, req.catalog])).rows[0] as Item | undefined;
   if (!cur) return res.status(404).json({ error: 'Item not found.' });
   const b = readItemBody({ ...itemView(cur), ...req.body });
   if (!b.name) return res.status(400).json({ error: 'Enter a name.' });
-  d.prepare(
-    `UPDATE items SET name=?, location=?, unit=?, mode=?, min_qty=?, target_qty=?, expiry_date=?, updated_at=datetime('now') WHERE id=?`
-  ).run(b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, id);
-  res.json(itemView(d.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item));
-});
+  const r = await sql(
+    `UPDATE items SET name = $1, location = $2, unit = $3, mode = $4, min_qty = $5, target_qty = $6, expiry_date = $7, updated_at = now()
+     WHERE id = $8 AND catalog = $9 RETURNING ${ITEM_COLS}`,
+    [b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, id, req.catalog]
+  );
+  res.json(itemView(r.rows[0] as Item));
+}));
 
 // ---------- product photos ----------
-app.put('/api/items/:id/photo', requireReviewer, (req, res) => {
-  const d = req.db!;
+app.put('/api/items/:id/photo', requireReviewer, route(async (req, res) => {
   const id = Number(req.params.id);
-  const it = d.prepare('SELECT * FROM items WHERE id = ? AND active = 1').get(id) as Item | undefined;
-  if (!it) return res.status(404).json({ error: 'Item not found.' });
+  const exists = await sql('SELECT 1 FROM items WHERE id = $1 AND catalog = $2 AND active = 1', [id, req.catalog]);
+  if (!exists.rowCount) return res.status(404).json({ error: 'Item not found.' });
+  let bytes: Buffer;
   try {
-    const file = savePhoto(req.catalog!, id, String(req.body?.image || ''));
-    d.prepare('UPDATE items SET image_file = ? WHERE id = ?').run(file, id);
+    bytes = photoBytes(String(req.body?.image || ''));
   } catch (e: any) {
     return res.status(400).json({ error: e.message });
   }
-  res.json(itemView(d.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item));
-});
+  const r = await sql(`UPDATE items SET photo = $1, updated_at = now() WHERE id = $2 AND catalog = $3 RETURNING ${ITEM_COLS}`, [bytes, id, req.catalog]);
+  res.json(itemView(r.rows[0] as Item));
+}));
 
-app.get('/api/items/:id/photo', requireReviewer, (req, res) => {
-  const it = req.db!.prepare('SELECT * FROM items WHERE id = ?').get(Number(req.params.id)) as Item | undefined;
-  if (!it?.image_file) return res.status(404).json({ error: 'No photo.' });
+app.get('/api/items/:id/photo', requireReviewer, route(async (req, res) => {
+  const r = await sql('SELECT photo FROM items WHERE id = $1 AND catalog = $2', [Number(req.params.id), req.catalog]);
+  const photo: Buffer | null = r.rows[0]?.photo ?? null;
+  if (!photo) return res.status(404).json({ error: 'No photo.' });
+  res.setHeader('Content-Type', 'image/jpeg');
   res.setHeader('Cache-Control', 'private, no-cache');
-  res.sendFile(photoPath(req.catalog!, it.image_file));
-});
+  res.send(photo);
+}));
 
-app.delete('/api/items/:id/photo', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const it = d.prepare('SELECT * FROM items WHERE id = ?').get(Number(req.params.id)) as Item | undefined;
-  if (!it) return res.status(404).json({ error: 'Item not found.' });
-  if (it.image_file) deletePhoto(req.catalog!, it.image_file);
-  d.prepare('UPDATE items SET image_file = NULL WHERE id = ?').run(it.id);
+app.delete('/api/items/:id/photo', requireReviewer, route(async (req, res) => {
+  const r = await sql('UPDATE items SET photo = NULL, updated_at = now() WHERE id = $1 AND catalog = $2', [Number(req.params.id), req.catalog]);
+  if (!r.rowCount) return res.status(404).json({ error: 'Item not found.' });
   res.json({ ok: true });
-});
+}));
 
 // Suggests a name for a single product, from a new photo (image) or the item's saved photo (itemId).
-app.post('/api/identify', requireReviewer, async (req, res) => {
-  let image = typeof req.body?.image === 'string' ? req.body.image : '';
+app.post('/api/identify', requireReviewer, route(async (req, res) => {
   let base64 = '';
   let mime: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg';
-  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(image);
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(typeof req.body?.image === 'string' ? req.body.image : '');
   if (m) {
     mime = m[1] as typeof mime;
     base64 = m[2];
   } else if (req.body?.itemId != null) {
-    const it = req.db!.prepare('SELECT * FROM items WHERE id = ?').get(Number(req.body.itemId)) as Item | undefined;
-    if (!it?.image_file) return res.status(400).json({ error: 'Take a photo of the product first.' });
-    base64 = readPhotoBase64(req.catalog!, it.image_file);
+    const r = await sql('SELECT photo FROM items WHERE id = $1 AND catalog = $2', [Number(req.body.itemId), req.catalog]);
+    const photo: Buffer | null = r.rows[0]?.photo ?? null;
+    if (!photo) return res.status(400).json({ error: 'Take a photo of the product first.' });
+    base64 = photo.toString('base64');
   } else {
     return res.status(400).json({ error: 'Send a product photo.' });
   }
@@ -279,183 +271,202 @@ app.post('/api/identify', requireReviewer, async (req, res) => {
     console.error('identify failed', e);
     res.status(502).json({ error: "Couldn't read the product. Type the name instead." });
   }
-});
+}));
 
-app.delete('/api/items/:id', requireReviewer, (req, res) => {
-  req.db!.prepare('UPDATE items SET active = 0 WHERE id = ?').run(Number(req.params.id));
+app.delete('/api/items/:id', requireReviewer, route(async (req, res) => {
+  await sql('UPDATE items SET active = 0, updated_at = now() WHERE id = $1 AND catalog = $2', [Number(req.params.id), req.catalog]);
   res.json({ ok: true });
-});
+}));
 
 // ---------- week + count ----------
-app.get('/api/week', requireReviewer, (req, res) => res.json(weekView(req.db!)));
+app.get('/api/week', requireReviewer, route(async (req, res) => {
+  res.json(await weekView(req.catalog!));
+}));
 
-app.get('/api/count', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
-  const done = new Set(
-    (d.prepare('SELECT item_id FROM count_entries WHERE week_id = ?').all(w.id) as { item_id: number }[]).map((r) => r.item_id)
-  );
-  res.json({ week: weekView(d), items: activeItems(d).map((it) => ({ ...itemView(it), counted: done.has(it.id) })) });
-});
+app.get('/api/count', requireReviewer, route(async (req, res) => {
+  const w = await getOrCreateWeek(sql, req.catalog!);
+  const done = new Set(((await sql('SELECT item_id FROM count_entries WHERE week_id = $1', [w.id])).rows as { item_id: number }[]).map((r) => r.item_id));
+  res.json({
+    week: await weekView(req.catalog!),
+    items: (await activeItems(sql, req.catalog!)).map((it) => ({ ...itemView(it), counted: done.has(it.id) }))
+  });
+}));
 
-app.post('/api/count/item/:itemId', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
+app.post('/api/count/item/:itemId', requireReviewer, route(async (req, res) => {
+  const catalog = req.catalog!;
+  const w = await getOrCreateWeek(sql, catalog);
   const id = Number(req.params.itemId);
-  const it = d.prepare('SELECT * FROM items WHERE id = ? AND active = 1').get(id) as Item | undefined;
+  const it = (await sql(`SELECT ${ITEM_COLS} FROM items WHERE id = $1 AND catalog = $2 AND active = 1`, [id, catalog])).rows[0] as Item | undefined;
   if (!it) return res.status(404).json({ error: 'Item not found.' });
-  const who = req.reviewer ?? null;
-  const tx = d.transaction(() => {
+  await tx(async (s) => {
     if (req.body?.counted === false) {
-      d.prepare('DELETE FROM count_entries WHERE week_id = ? AND item_id = ?').run(w.id, id);
+      await s('DELETE FROM count_entries WHERE week_id = $1 AND item_id = $2', [w.id, id]);
       return;
     }
     if (it.mode === 'num' && req.body?.value != null) {
-      d.prepare("UPDATE items SET current_num = ?, updated_at=datetime('now') WHERE id = ?").run(Math.max(0, Number(req.body.value) || 0), id);
+      await s('UPDATE items SET current_num = $1, updated_at = now() WHERE id = $2', [Math.max(0, Number(req.body.value) || 0), id]);
     }
     if (it.mode === 'lvl' && LEVELS.includes(req.body?.level)) {
-      d.prepare("UPDATE items SET current_level = ?, updated_at=datetime('now') WHERE id = ?").run(req.body.level, id);
+      await s('UPDATE items SET current_level = $1, updated_at = now() WHERE id = $2', [req.body.level, id]);
     }
-    d.prepare(
-      `INSERT INTO count_entries (week_id, item_id, counted_by) VALUES (?, ?, ?)
-       ON CONFLICT(week_id, item_id) DO UPDATE SET counted_by = excluded.counted_by, counted_at = datetime('now')`
-    ).run(w.id, id, who);
+    await s(
+      `INSERT INTO count_entries (week_id, item_id, counted_by) VALUES ($1, $2, $3)
+       ON CONFLICT (week_id, item_id) DO UPDATE SET counted_by = EXCLUDED.counted_by, counted_at = now()`,
+      [w.id, id, req.reviewer ?? null]
+    );
   });
-  tx();
   // Still a draft? Then the list follows the new count straight away.
-  refreshDraft(d, w);
-  const fresh = d.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item;
+  await refreshDraft(w);
+  const fresh = (await sql(`SELECT ${ITEM_COLS} FROM items WHERE id = $1`, [id])).rows[0] as Item;
   res.json({ ...itemView(fresh), counted: req.body?.counted !== false });
-});
+}));
 
-app.post('/api/count/finish', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
-  d.prepare("UPDATE weeks SET count_finished_at = COALESCE(count_finished_at, datetime('now')), counted_by = ? WHERE id = ?").run(req.reviewer ?? null, w.id);
+app.post('/api/count/finish', requireReviewer, route(async (req, res) => {
+  const catalog = req.catalog!;
+  const w = await getOrCreateWeek(sql, catalog);
+  await sql("UPDATE weeks SET count_finished_at = COALESCE(count_finished_at, now()), counted_by = $1 WHERE id = $2", [req.reviewer ?? null, w.id]);
   // Finishing only drafts the list. Counts stay editable, and each change updates the draft.
-  refreshDraft(d, getOrCreateWeek(d));
-  res.json(weekView(d));
-});
+  await refreshDraft(await getOrCreateWeek(sql, catalog));
+  res.json(await weekView(catalog));
+}));
 
 // ---------- shopping list ----------
-app.get('/api/list', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
-  refreshDraft(d, w);
-  res.json({ week: weekView(d), lines: listLines(d, w.id).map(lineView) });
-});
+app.get('/api/list', requireReviewer, route(async (req, res) => {
+  const w = await getOrCreateWeek(sql, req.catalog!);
+  await refreshDraft(w);
+  res.json({ week: await weekView(req.catalog!), lines: (await listLines(sql, w.id)).map(lineView) });
+}));
 
-app.post('/api/list/redraft', requireReviewer, (req, res) => {
-  const d = req.db!;
-  refreshDraft(d, getOrCreateWeek(d));
+app.post('/api/list/redraft', requireReviewer, route(async (req, res) => {
+  await refreshDraft(await getOrCreateWeek(sql, req.catalog!));
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/list/lines', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
+app.post('/api/list/lines', requireReviewer, route(async (req, res) => {
+  const w = await getOrCreateWeek(sql, req.catalog!);
   const name = str(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Enter a name.' });
   const qty = Math.max(1, num(req.body?.qty) ?? 1);
-  d.prepare(
-    'INSERT INTO list_lines (week_id, name, unit, reason, suggested, qty, one_off) VALUES (?, ?, ?, ?, ?, ?, 1)'
-  ).run(w.id, name, str(req.body?.unit, 40), str(req.body?.reason, 80) || 'This week only', qty, qty);
+  await sql(
+    'INSERT INTO list_lines (week_id, name, unit, reason, suggested, qty, one_off) VALUES ($1, $2, $3, $4, $5, $6, 1)',
+    [w.id, name, str(req.body?.unit, 40), str(req.body?.reason, 80) || 'This week only', qty, qty]
+  );
   res.json({ ok: true });
-});
+}));
 
-app.put('/api/list/lines/:id', requireReviewer, (req, res) => {
-  const d = req.db!;
+/** A list line, only if it belongs to this catalog. */
+async function ownLine(id: number, catalog: Catalog): Promise<ListLine | undefined> {
+  return (
+    await sql('SELECT l.* FROM list_lines l JOIN weeks w ON w.id = l.week_id WHERE l.id = $1 AND w.catalog = $2', [id, catalog])
+  ).rows[0] as ListLine | undefined;
+}
+
+app.put('/api/list/lines/:id', requireReviewer, route(async (req, res) => {
   const id = Number(req.params.id);
-  const l = d.prepare('SELECT * FROM list_lines WHERE id = ?').get(id) as ListLine | undefined;
+  const l = await ownLine(id, req.catalog!);
   if (!l) return res.status(404).json({ error: 'Line not found.' });
   const qty = num(req.body?.qty);
-  d.prepare('UPDATE list_lines SET qty = ?, removed = ? WHERE id = ?').run(
+  const r = await sql('UPDATE list_lines SET qty = $1, removed = $2 WHERE id = $3 RETURNING *', [
     qty != null ? Math.max(1, qty) : l.qty,
     req.body?.removed != null ? (req.body.removed ? 1 : 0) : l.removed,
     id
+  ]);
+  res.json(lineView(r.rows[0] as ListLine));
+}));
+
+app.delete('/api/list/lines/:id', requireReviewer, route(async (req, res) => {
+  await sql(
+    'DELETE FROM list_lines l USING weeks w WHERE l.id = $1 AND w.id = l.week_id AND w.catalog = $2 AND l.one_off = 1',
+    [Number(req.params.id), req.catalog]
   );
-  res.json(lineView(d.prepare('SELECT * FROM list_lines WHERE id = ?').get(id) as ListLine));
-});
-
-app.delete('/api/list/lines/:id', requireReviewer, (req, res) => {
-  req.db!.prepare('DELETE FROM list_lines WHERE id = ? AND one_off = 1').run(Number(req.params.id));
   res.json({ ok: true });
-});
+}));
 
-app.put('/api/list/note', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
-  d.prepare('UPDATE weeks SET note = ? WHERE id = ?').run(str(req.body?.note, 500), w.id);
+app.put('/api/list/note', requireReviewer, route(async (req, res) => {
+  const w = await getOrCreateWeek(sql, req.catalog!);
+  await sql('UPDATE weeks SET note = $1 WHERE id = $2', [str(req.body?.note, 500), w.id]);
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/list/approve', requireReviewer, (req, res) => {
-  const d = req.db!;
-  const w = getOrCreateWeek(d);
-  d.prepare("UPDATE weeks SET approved_at = COALESCE(approved_at, datetime('now')), approved_by = ? WHERE id = ?").run(req.reviewer ?? null, w.id);
-  res.json(weekView(d));
-});
+app.post('/api/list/approve', requireReviewer, route(async (req, res) => {
+  const w = await getOrCreateWeek(sql, req.catalog!);
+  await sql('UPDATE weeks SET approved_at = COALESCE(approved_at, now()), approved_by = $1 WHERE id = $2', [req.reviewer ?? null, w.id]);
+  res.json(await weekView(req.catalog!));
+}));
 
 // ---------- family (no sign-in, by link) ----------
-app.get('/api/family/:token', (req, res) => {
-  const found = findFamilyWeek(req.params.token);
-  if (!found || !found.w.approved_at) return res.status(404).json({ error: "This list isn't ready yet. Check with the kitchen team." });
-  const { d, w, catalog } = found;
-  const lines = listLines(d, w.id).filter((l) => !l.removed).map(lineView);
-  res.json({ serviceDate: w.service_date, note: w.note, lines, testing: catalog === 'test' });
-});
-app.post('/api/family/:token/lines/:id', (req, res) => {
-  const found = findFamilyWeek(req.params.token);
-  if (!found || !found.w.approved_at) return res.status(404).json({ error: 'List not found.' });
-  const { d, w } = found;
+/** Family links carry no catalog. The token is random and unique, and the week tells us its catalog. */
+async function findFamilyWeek(token: string): Promise<Week | undefined> {
+  return (await sql('SELECT * FROM weeks WHERE share_token = $1', [token])).rows[0] as Week | undefined;
+}
+
+app.get('/api/family/:token', route(async (req, res) => {
+  const w = await findFamilyWeek(String(req.params.token));
+  if (!w || !w.approved_at) return res.status(404).json({ error: "This list isn't ready yet. Check with the kitchen team." });
+  const lines = (await listLines(sql, w.id)).filter((l) => !l.removed).map(lineView);
+  res.json({ serviceDate: w.service_date, note: w.note, lines, testing: w.catalog === 'test' });
+}));
+
+app.post('/api/family/:token/lines/:id', route(async (req, res) => {
+  const w = await findFamilyWeek(String(req.params.token));
+  if (!w || !w.approved_at) return res.status(404).json({ error: 'List not found.' });
   const id = Number(req.params.id);
-  const l = d.prepare('SELECT * FROM list_lines WHERE id = ? AND week_id = ?').get(id, w.id) as ListLine | undefined;
+  const l = (await sql('SELECT * FROM list_lines WHERE id = $1 AND week_id = $2', [id, w.id])).rows[0] as ListLine | undefined;
   if (!l) return res.status(404).json({ error: 'Item not found.' });
   // Families only record what they bought. This never changes inventory counts.
   const bought = req.body?.bought != null ? (req.body.bought ? 1 : 0) : l.bought;
   const bq = num(req.body?.boughtQty);
-  d.prepare('UPDATE list_lines SET bought = ?, bought_qty = ? WHERE id = ?').run(bought, bq != null ? Math.max(0, bq) : l.bought_qty, id);
-  res.json(lineView(d.prepare('SELECT * FROM list_lines WHERE id = ?').get(id) as ListLine));
-});
+  const r = await sql('UPDATE list_lines SET bought = $1, bought_qty = $2 WHERE id = $3 RETURNING *', [
+    bought,
+    bq != null ? Math.max(0, bq) : l.bought_qty,
+    id
+  ]);
+  res.json(lineView(r.rows[0] as ListLine));
+}));
 
 // ---------- add by photo ----------
-app.post('/api/scan', requireReviewer, async (req, res) => {
+app.post('/api/scan', requireReviewer, route(async (req, res) => {
   const location = LOCATIONS.includes(req.body?.location) ? req.body.location : 'Shelves';
   const dataUrl = String(req.body?.image || '');
   const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl);
   if (!m) return res.status(400).json({ error: 'Send the photo as a JPEG or PNG.' });
   try {
-    res.json(await scanPhoto(req.db!, location, m[2], m[1] as 'image/jpeg'));
+    res.json(await scanPhoto(req.catalog!, location, m[2], m[1] as 'image/jpeg'));
   } catch (e: any) {
     console.error('scan failed', e);
     res.status(502).json({ error: e?.message?.startsWith('The photo') ? e.message : "Couldn't read the photo. Try again." });
   }
-});
+}));
 
-app.post('/api/scan/save', requireReviewer, (req, res) => {
-  const d = req.db!;
+app.post('/api/scan/save', requireReviewer, route(async (req, res) => {
+  const catalog = req.catalog!;
   const location = LOCATIONS.includes(req.body?.location) ? req.body.location : 'Shelves';
   const rows = Array.isArray(req.body?.items) ? req.body.items : [];
   let added = 0, updated = 0;
-  const tx = d.transaction(() => {
+  await tx(async (s) => {
     for (const r of rows) {
       const name = canonicalName(str(r.name));
       if (!name) continue;
       const count = Math.max(0, Math.round(Number(r.count) || 0));
       if (r.matchId) {
-        d.prepare("UPDATE items SET current_num = ?, updated_at = datetime('now') WHERE id = ? AND mode = 'num'").run(count, Number(r.matchId));
-        updated++;
+        // Only update an item that belongs to this catalog.
+        const u = await s("UPDATE items SET current_num = $1, updated_at = now() WHERE id = $2 AND catalog = $3 AND mode = 'num'", [
+          count,
+          Number(r.matchId),
+          catalog
+        ]);
+        if (u.rowCount) updated++;
       } else {
-        d.prepare('INSERT INTO items (name, location, unit, mode, current_num) VALUES (?, ?, ?, ?, ?)').run(
-          name, location, str(r.unit, 40), 'num', count
+        await s(
+          "INSERT INTO items (catalog, name, location, unit, mode, current_num) VALUES ($1, $2, $3, $4, 'num', $5)",
+          [catalog, name, location, str(r.unit, 40), count]
         );
         added++;
       }
     }
   });
-  tx();
   res.json({ added, updated });
-});
+}));
 
 // ---------- UI ----------
 const clientDir = path.resolve(process.cwd(), 'dist/client');
@@ -468,21 +479,35 @@ if (fs.existsSync(clientDir)) {
 }
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
+// Last resort: an unexpected error gets a readable message, and the details go to the server log.
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('request failed', err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Something went wrong. Try again.' });
+});
+
 // Only listen when run directly (npm start / tsx server/index.ts), so tests can import `app` without opening a port.
 const isMain = process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  app.listen(PORT, '0.0.0.0', () => {
-    const ips = Object.values(os.networkInterfaces())
-      .flat()
-      .filter((n) => n && n.family === 'IPv4' && !n.internal)
-      .map((n) => n!.address);
-    console.log(`\nLangar Pantry is running.`);
-    console.log(`  On this computer:  http://localhost:${PORT}`);
-    for (const ip of ips) console.log(`  On your phone:     http://${ip}:${PORT}   (same Wi-Fi)`);
-    console.log(`  Catalogs:          ${CATALOGS.prod.label} (REVIEWER_PIN) · ${CATALOGS.test.label} (TEST_PIN${TEST_PIN ? '' : ', not set'})`);
-    if (!process.env.ANTHROPIC_API_KEY) console.log('  Add by photo: demo mode (set ANTHROPIC_API_KEY in .env for real photo reading)');
-    console.log('');
-  });
+  migrate()
+    .then(() => {
+      app.listen(PORT, '0.0.0.0', () => {
+        const ips = Object.values(os.networkInterfaces())
+          .flat()
+          .filter((n) => n && n.family === 'IPv4' && !n.internal)
+          .map((n) => n!.address);
+        console.log(`\nLangar Pantry is running.`);
+        console.log(`  On this computer:  http://localhost:${PORT}`);
+        for (const ip of ips) console.log(`  On your phone:     http://${ip}:${PORT}   (same Wi-Fi)`);
+        console.log(`  Catalogs:          ${CATALOGS.prod.label} (REVIEWER_PIN) · ${CATALOGS.test.label} (TEST_PIN${TEST_PIN ? '' : ', not set'})`);
+        if (!process.env.ANTHROPIC_API_KEY) console.log('  Add by photo: demo mode (set ANTHROPIC_API_KEY in .env for real photo reading)');
+        console.log('');
+      });
+    })
+    .catch((e) => {
+      console.error('Could not start: the database is not reachable. Check DATABASE_URL in .env.', e.message);
+      process.exit(1);
+    });
 }
 
 export { app };

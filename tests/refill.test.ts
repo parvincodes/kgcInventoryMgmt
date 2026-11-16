@@ -10,7 +10,7 @@ afterAll(async () => {
   await serve.stopServer();
 });
 beforeEach(async () => {
-  resetDb();
+  await resetDb();
   s = await signIn(PROD_PIN, 'Harpreet');
   await addItem(s, { name: 'Atta', location: 'Kitchen', unit: 'bags', mode: 'num', min: 5, target: 10, currentNum: 2 });
   await addItem(s, { name: 'Ghee', location: 'Fridge', unit: 'jars', mode: 'lvl', currentLevel: 'Low' });

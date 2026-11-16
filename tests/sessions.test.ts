@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { authDb } from '../server/db.js';
+import { sql } from '../server/db.js';
 import { baseUrl, get, post, resetDb, serve, signIn, PROD_PIN, TEST_PIN } from './helpers.js';
 
 const sessionId = (cookie: string) => cookie.split('=')[1];
@@ -10,8 +10,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await serve.stopServer();
 });
-beforeEach(() => {
-  resetDb();
+beforeEach(async () => {
+  await resetDb();
 });
 
 describe('sign-in sessions', () => {
@@ -31,16 +31,17 @@ describe('sign-in sessions', () => {
   it('keeps the session for about eight hours', async () => {
     const before = Date.now();
     const s = await signIn(PROD_PIN, 'Harpreet');
-    const row = authDb.prepare('SELECT expires_at FROM sessions WHERE id = ?').get(sessionId(s.cookie)) as { expires_at: number };
+    const row = (await sql('SELECT expires_at FROM sessions WHERE id = $1', [sessionId(s.cookie)])).rows[0];
     const eightHours = 8 * 60 * 60 * 1000;
-    expect(row.expires_at - before).toBeGreaterThanOrEqual(eightHours - 5000);
-    expect(row.expires_at - before).toBeLessThanOrEqual(eightHours + 5000);
+    const remaining = new Date(row.expires_at).getTime() - before;
+    expect(remaining).toBeGreaterThanOrEqual(eightHours - 5000);
+    expect(remaining).toBeLessThanOrEqual(eightHours + 5000);
   });
 
   it('refuses a session once it has expired', async () => {
     const s = await signIn(PROD_PIN, 'Harpreet');
     expect((await get(s, '/api/items')).status).toBe(200);
-    authDb.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, sessionId(s.cookie));
+    await sql('UPDATE sessions SET expires_at = $1 WHERE id = $2', [new Date(Date.now() - 1000), sessionId(s.cookie)]);
     expect((await get(s, '/api/items')).status).toBe(401);
     expect((await get(s, '/api/me')).body).toEqual({ name: null });
   });
@@ -61,9 +62,9 @@ describe('sign-in sessions', () => {
 
   it('removes expired sessions when someone signs in again', async () => {
     const s = await signIn(PROD_PIN, 'Harpreet');
-    authDb.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, sessionId(s.cookie));
+    await sql('UPDATE sessions SET expires_at = $1 WHERE id = $2', [new Date(Date.now() - 1000), sessionId(s.cookie)]);
     await signIn(PROD_PIN, 'Someone else');
-    const left = authDb.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id = ?').get(sessionId(s.cookie)) as { n: number };
-    expect(left.n).toBe(0);
+    const left = (await sql('SELECT COUNT(*) AS n FROM sessions WHERE id = $1', [sessionId(s.cookie)])).rows[0].n;
+    expect(left).toBe(0);
   });
 });
