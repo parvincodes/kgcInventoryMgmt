@@ -72,6 +72,8 @@ export async function weekStatus(s: Sql, w: Week): Promise<WeekStatus> {
  * Reviewer removals are kept too, unless the item is no longer below minimum.
  */
 export async function draftList(s: Sql, week: Week) {
+  // One draft at a time per week, so two people can't add the same item twice.
+  await s('SELECT pg_advisory_xact_lock($1)', [week.id]);
   const items = await activeItems(s, week.catalog);
   const existing = (await s('SELECT * FROM list_lines WHERE week_id = $1 AND one_off = 0', [week.id])).rows as ListLine[];
   const byItem = new Map(existing.map((l) => [l.item_id, l]));

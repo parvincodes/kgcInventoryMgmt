@@ -115,6 +115,24 @@ function lineView(l: ListLine) {
     boughtQty: l.bought_qty
   };
 }
+function countText(it: Item): string {
+  return it.mode === 'lvl' ? it.current_level : String(it.current_num);
+}
+
+/** One open alert per item per week. It isn't repeated while the first one is still waiting for review. */
+async function raiseDoubleCount(weekId: number, itemId: number, name: string, first: string, second: string, before: string, after: string) {
+  const open = await sql(
+    "SELECT 1 FROM review_alerts WHERE week_id = $1 AND item_id = $2 AND kind = 'double_count' AND resolved_at IS NULL",
+    [weekId, itemId]
+  );
+  if (open.rowCount) return;
+  await sql("INSERT INTO review_alerts (week_id, item_id, kind, detail) VALUES ($1, $2, 'double_count', $3)", [
+    weekId,
+    itemId,
+    `${name} was counted by ${first} and then by ${second}. Before: ${before}. Now: ${after}. The later count is kept.`
+  ]);
+}
+
 async function weekView(catalog: Catalog) {
   const w = await getOrCreateWeek(sql, catalog);
   const items = await activeItems(sql, catalog);
@@ -319,6 +337,10 @@ app.post('/api/count/item/:itemId', requireReviewer, route(async (req, res) => {
   const id = Number(req.params.itemId);
   const it = (await sql(`SELECT ${ITEM_COLS} FROM items WHERE id = $1 AND catalog = $2 AND active = 1`, [id, catalog])).rows[0] as Item | undefined;
   if (!it) return res.status(404).json({ error: 'Item not found.' });
+  const before = countText(it);
+  const earlier = (await sql('SELECT counted_by FROM count_entries WHERE week_id = $1 AND item_id = $2', [w.id, id])).rows[0] as
+    | { counted_by: string | null }
+    | undefined;
   await tx(async (s) => {
     if (req.body?.counted === false) {
       await s('DELETE FROM count_entries WHERE week_id = $1 AND item_id = $2', [w.id, id]);
@@ -339,6 +361,10 @@ app.post('/api/count/item/:itemId', requireReviewer, route(async (req, res) => {
   // Still a draft? Then the list follows the new count straight away.
   await refreshDraft(w);
   const fresh = (await sql(`SELECT ${ITEM_COLS} FROM items WHERE id = $1`, [id])).rows[0] as Item;
+  // Two people counted the same item this week: keep the later count, and ask an admin to check it.
+  if (req.body?.counted !== false && earlier?.counted_by && req.reviewer && earlier.counted_by !== req.reviewer) {
+    await raiseDoubleCount(w.id, id, it.name, earlier.counted_by, req.reviewer, before, countText(fresh));
+  }
   res.json({ ...itemView(fresh), counted: req.body?.counted !== false });
 }));
 
@@ -411,8 +437,29 @@ app.put('/api/list/note', requireReviewer, route(async (req, res) => {
 
 app.post('/api/list/approve', requireAdmin, route(async (req, res) => {
   const w = await getOrCreateWeek(sql, req.catalog!);
+  const open = Number((await sql('SELECT COUNT(*) AS n FROM review_alerts WHERE week_id = $1 AND resolved_at IS NULL', [w.id])).rows[0].n);
+  if (open > 0) {
+    return res.status(409).json({ error: `Review ${open} alert${open === 1 ? '' : 's'} before approving the list.` });
+  }
   await sql('UPDATE weeks SET approved_at = COALESCE(approved_at, now()), approved_by = $1 WHERE id = $2', [req.reviewer ?? null, w.id]);
   res.json(await weekView(req.catalog!));
+}));
+
+// ---------- review alerts ----------
+app.get('/api/alerts', requireReviewer, route(async (req, res) => {
+  const w = await getOrCreateWeek(sql, req.catalog!);
+  const rows = (await sql('SELECT id, kind, detail, created_at FROM review_alerts WHERE week_id = $1 AND resolved_at IS NULL ORDER BY created_at', [w.id])).rows;
+  res.json(rows);
+}));
+
+app.post('/api/alerts/:id/resolve', requireAdmin, route(async (req, res) => {
+  const r = await sql(
+    `UPDATE review_alerts a SET resolved_at = now(), resolved_by = $1 FROM weeks w
+     WHERE a.id = $2 AND w.id = a.week_id AND w.catalog = $3 AND a.resolved_at IS NULL`,
+    [req.reviewer ?? null, Number(req.params.id), req.catalog]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'Alert not found, or already reviewed.' });
+  res.json({ ok: true });
 }));
 
 // ---------- family (no sign-in, by link) ----------

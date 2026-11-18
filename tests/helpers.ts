@@ -24,7 +24,7 @@ export async function stopServer() {
 
 /** Empty every table and restart id counting, so tests can rely on ids. Call in beforeEach. */
 export async function resetDb() {
-  await sql('TRUNCATE items, weeks, count_entries, list_lines, sessions, people RESTART IDENTITY CASCADE');
+  await sql('TRUNCATE items, weeks, count_entries, list_lines, review_alerts, sessions, people RESTART IDENTITY CASCADE');
   await seedPeople();
 }
 

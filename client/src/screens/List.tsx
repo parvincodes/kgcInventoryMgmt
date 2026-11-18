@@ -5,8 +5,9 @@ import { Back, LangToggle, Loading, Stepper } from '../ui';
 import { productName, useLang } from '../lang';
 
 type ListData = { week: Week; lines: Line[] };
+type Alert = { id: number; kind: string; detail: string };
 
-export default function List() {
+export default function List({ role }: { role: 'admin' | 'reviewer' }) {
   const nav = useNavigate();
   const lang = useLang();
   const [data, setData] = useState<ListData | null>(null);
@@ -15,14 +16,25 @@ export default function List() {
   const [adding, setAdding] = useState(false);
   const [one, setOne] = useState({ name: '', qty: 1, unit: '', reason: '' });
   const [copied, setCopied] = useState(false);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
-  const load = () =>
-    api<ListData>('/api/list')
+  const load = () => {
+    api<Alert[]>('/api/alerts').then(setAlerts).catch(() => {});
+    return api<ListData>('/api/list')
       .then((d) => {
         setData(d);
         setNote(d.week.note);
       })
       .catch((e) => setError(e.message));
+  };
+  async function reviewAlert(id: number) {
+    try {
+      await api(`/api/alerts/${id}/resolve`, { method: 'POST', body: {} });
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
   useEffect(() => {
     load();
   }, []);
@@ -105,6 +117,22 @@ export default function List() {
           </div>
         )}
 
+        {alerts.length > 0 && (
+          <div className="card" style={{ marginTop: 16, borderLeft: '4px solid var(--saffron-ink)' }}>
+            <p style={{ margin: 0, fontWeight: 600 }}>Needs review before approval</p>
+            {alerts.map((a) => (
+              <div key={a.id} style={{ marginTop: 10 }}>
+                <p className="small" style={{ margin: 0, lineHeight: 1.5 }}>{a.detail}</p>
+                {role === 'admin' ? (
+                  <button type="button" className="link-btn" style={{ padding: 0, marginTop: 4 }} onClick={() => reviewAlert(a.id)}>Mark reviewed</button>
+                ) : (
+                  <p className="muted small" style={{ margin: '4px 0 0' }}>An admin needs to mark this reviewed.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         <p className="section">Below minimum</p>
         {auto.length === 0 && <p className="muted" style={{ padding: '12px 0' }}>Nothing is below minimum.</p>}
         {auto.map((l) => (
@@ -178,7 +206,8 @@ export default function List() {
       <div className="footer">
         {!sent ? (
           <>
-            <button className="btn" onClick={approve} disabled={week.status !== 'drafted' || activeCount === 0}>Approve list</button>
+            <button className="btn" onClick={approve} disabled={week.status !== 'drafted' || activeCount === 0 || alerts.length > 0}>Approve list</button>
+            {alerts.length > 0 && <p className="muted small center">Mark the alerts reviewed to approve the list.</p>}
             <p className="muted small center">Then share it on WhatsApp. You can still edit after sharing; the link always shows the latest list.</p>
           </>
         ) : (

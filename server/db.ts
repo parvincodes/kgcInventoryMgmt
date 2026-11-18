@@ -122,6 +122,16 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL
 );
+CREATE TABLE IF NOT EXISTS review_alerts (
+  id BIGSERIAL PRIMARY KEY,
+  week_id BIGINT NOT NULL REFERENCES weeks(id) ON DELETE CASCADE,
+  item_id BIGINT REFERENCES items(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('double_count', 'duplicate_line')),
+  detail TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ,
+  resolved_by TEXT
+);
 CREATE TABLE IF NOT EXISTS people (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
@@ -138,9 +148,35 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS person_id BIGINT REFERENCES people
 ALTER TABLE people ADD COLUMN IF NOT EXISTS owner BOOLEAN NOT NULL DEFAULT false;
 `;
 
-/** Creates any missing tables. Safe to run on every start. */
+/**
+ * Creates any missing tables. Safe to run on every start.
+ * Merges any duplicate list lines first (leaving an alert), then adds the rule that stops them coming back.
+ */
 export async function migrate() {
   await sql(SCHEMA);
+  await mergeDuplicateLines();
+  await sql(
+    'CREATE UNIQUE INDEX IF NOT EXISTS list_lines_one_per_item ON list_lines (week_id, item_id) WHERE one_off = 0 AND item_id IS NOT NULL'
+  );
+  await sql('CREATE INDEX IF NOT EXISTS list_lines_week ON list_lines (week_id)');
+}
+
+async function mergeDuplicateLines() {
+  const groups = await sql(`
+    SELECT week_id, item_id, MIN(name) AS name,
+           array_agg(id ORDER BY (qty <> suggested OR removed = 1 OR bought = 1) DESC, id ASC) AS ids
+    FROM list_lines WHERE one_off = 0 AND item_id IS NOT NULL
+    GROUP BY week_id, item_id HAVING COUNT(*) > 1`);
+  for (const g of groups.rows as { week_id: number; item_id: number; name: string; ids: number[] }[]) {
+    const drop = g.ids.slice(1);
+    await sql('DELETE FROM list_lines WHERE id = ANY($1)', [drop]);
+    await sql('INSERT INTO review_alerts (week_id, item_id, kind, detail) VALUES ($1, $2, $3, $4)', [
+      g.week_id,
+      g.item_id,
+      'duplicate_line',
+      `${g.name} was on the list ${drop.length + 1} times. One line was kept. Check the quantity.`
+    ]);
+  }
 }
 
 /** Columns for an item as the app reads them. The photo itself is left out, since it is large. */
