@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS people (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS person_id BIGINT REFERENCES people(id) ON DELETE CASCADE;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS owner BOOLEAN NOT NULL DEFAULT false;
 `;
 
 /** Creates any missing tables. Safe to run on every start. */
@@ -181,6 +182,7 @@ export type Person = {
   phone: string;
   role: 'admin' | 'reviewer';
   catalog: Catalog;
+  owner: boolean;
   pin_hash: string;
   active: boolean;
   failed_count: number;

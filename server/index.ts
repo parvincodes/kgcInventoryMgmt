@@ -27,6 +27,7 @@ declare global {
       reviewer?: string;
       catalog?: Catalog;
       role?: Role;
+      owner?: boolean;
     }
   }
 }
@@ -41,14 +42,14 @@ app.use(cookieParser());
 const SESSION_COOKIE = 'session';
 const SESSION_MS = Number(process.env.SESSION_HOURS || 8) * 60 * 60 * 1000;
 
-type SessionRow = { id: string; name: string; catalog: Catalog; role: Role };
+type SessionRow = { id: string; name: string; catalog: Catalog; role: Role; owner: boolean };
 
 /** The signed-in session for this request, or null. Expired sessions never match, and deactivated people lose access at once. */
 async function currentSession(req: Request): Promise<SessionRow | null> {
   const id = req.cookies?.[SESSION_COOKIE];
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{32,64}$/.test(id)) return null;
   const r = await sql(
-    `SELECT p.name, p.catalog, p.role, s.id FROM sessions s JOIN people p ON p.id = s.person_id
+    `SELECT p.name, p.catalog, p.role, p.owner, s.id FROM sessions s JOIN people p ON p.id = s.person_id
      WHERE s.id = $1 AND s.expires_at > now() AND p.active`,
     [id]
   );
@@ -60,6 +61,7 @@ const requireReviewer = async (req: Request, res: Response, next: NextFunction) 
   req.reviewer = s.name;
   req.catalog = s.catalog;
   req.role = s.role;
+  req.owner = s.owner;
   next();
 };
 /** Only admins: approving the list, removing items, and managing people. */
@@ -70,6 +72,7 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
   req.reviewer = s.name;
   req.catalog = s.catalog;
   req.role = s.role;
+  req.owner = s.owner;
   next();
 };
 const num = (v: unknown): number | null => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -135,8 +138,8 @@ async function weekView(catalog: Catalog) {
     boughtCount: lines.filter((l) => l.bought).length
   };
 }
-function meView(name: string, catalog: Catalog, role: Role) {
-  return { name, catalog, role, catalogLabel: CATALOGS[catalog].label, testing: catalog === 'test' };
+function meView(name: string, catalog: Catalog, role: Role, owner: boolean) {
+  return { name, catalog, role, owner, catalogLabel: CATALOGS[catalog].label, testing: catalog === 'test' };
 }
 
 // ---------- auth ----------
@@ -145,7 +148,7 @@ const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, secure: process.
 
 app.get('/api/me', route(async (req, res) => {
   const s = await currentSession(req);
-  res.json(s ? meView(s.name, s.catalog, s.role) : { name: null });
+  res.json(s ? meView(s.name, s.catalog, s.role, s.owner) : { name: null });
 }));
 
 app.post('/api/login', route(async (req, res) => {
@@ -181,7 +184,7 @@ app.post('/api/login', route(async (req, res) => {
     new Date(Date.now() + SESSION_MS)
   ]);
   res.cookie(SESSION_COOKIE, id, { ...COOKIE_OPTS, maxAge: SESSION_MS });
-  res.json(meView(person.name, person.catalog, person.role));
+  res.json(meView(person.name, person.catalog, person.role, person.owner));
 }));
 
 app.post('/api/logout', route(async (req, res) => {
@@ -486,8 +489,39 @@ app.post('/api/scan/save', requireReviewer, route(async (req, res) => {
   res.json({ added, updated });
 }));
 
+// ---------- my own PIN (anyone signed in) ----------
+// Changing your own PIN needs your current PIN, so a signed-in browser alone isn't enough.
+app.post('/api/me/pin', requireReviewer, route(async (req, res) => {
+  const r = await sql(
+    `SELECT p.id, p.pin_hash, p.locked_until FROM sessions s JOIN people p ON p.id = s.person_id
+     WHERE s.id = $1 AND s.expires_at > now() AND p.active`,
+    [req.cookies?.[SESSION_COOKIE]]
+  );
+  const me = r.rows[0] as { id: number; pin_hash: string; locked_until: Date | null } | undefined;
+  if (!me) return res.status(401).json({ error: 'Sign in first.' });
+  if (me.locked_until && new Date(me.locked_until) > new Date()) {
+    return res.status(429).json({ error: `Too many tries. Wait ${LOCK_MINUTES} minutes, or ask the owner to unlock you.` });
+  }
+  const current = str(req.body?.currentPin, 12);
+  const next = str(req.body?.newPin, 12);
+  if (!checkPin(current, me.pin_hash)) {
+    await sql(
+      `UPDATE people SET
+         failed_count = CASE WHEN failed_count + 1 >= $2 THEN 0 ELSE failed_count + 1 END,
+         locked_until = CASE WHEN failed_count + 1 >= $2 THEN now() + ($3 || ' minutes')::interval ELSE locked_until END
+       WHERE id = $1`,
+      [me.id, LOCK_ATTEMPTS, String(LOCK_MINUTES)]
+    );
+    return res.status(401).json({ error: 'Your current PIN is not right.' });
+  }
+  if (!validPin(next)) return res.status(400).json({ error: 'The new PIN must be 4 to 8 digits.' });
+  if (next === current) return res.status(400).json({ error: 'Choose a PIN that is different from the current one.' });
+  await sql('UPDATE people SET pin_hash = $1, failed_count = 0, locked_until = NULL WHERE id = $2', [hashPin(next), me.id]);
+  res.json({ ok: true });
+}));
+
 // ---------- people (admins only) ----------
-const PEOPLE_COLS = 'id, name, phone, role, catalog, active, failed_count, locked_until';
+const PEOPLE_COLS = 'id, name, phone, role, catalog, active, owner, failed_count, locked_until';
 const ROLES: Role[] = ['admin', 'reviewer'];
 
 app.get('/api/people', requireAdmin, route(async (_req, res) => {
@@ -516,19 +550,28 @@ app.put('/api/people/:id', requireAdmin, route(async (req, res) => {
   const p = (await sql('SELECT * FROM people WHERE id = $1', [id])).rows[0] as Person | undefined;
   if (!p) return res.status(404).json({ error: 'Person not found.' });
   const isSelf = ((await sql('SELECT 1 FROM sessions s WHERE s.person_id = $1 AND s.id = $2', [id, req.cookies?.[SESSION_COOKIE]])).rowCount ?? 0) > 0;
+  const wantsDeactivate = typeof req.body?.active === 'boolean' && req.body.active !== p.active;
+  const wantsPinReset = req.body?.pin != null && req.body.pin !== '';
+  // Only the owner can remove someone or reset a PIN, for anyone (including other admins).
+  if ((wantsDeactivate || wantsPinReset) && !req.owner) {
+    return res.status(403).json({ error: 'Only the owner can remove people or reset PINs.' });
+  }
   const role: Role = ROLES.includes(req.body?.role) ? (req.body.role as Role) : p.role;
   const active = typeof req.body?.active === 'boolean' ? req.body.active : p.active;
-  // Don't let the last way in be removed: nobody can demote or deactivate their own account.
+  if (p.owner && role !== p.role) return res.status(400).json({ error: "The owner's role can't be changed." });
+  if (p.owner && !active) return res.status(400).json({ error: "The owner can't be deactivated." });
+  // Nobody can demote or deactivate their own account, so the last way in can't be removed by accident.
   if (isSelf && (role !== p.role || !active)) {
     return res.status(400).json({ error: "You can't demote or deactivate your own account." });
   }
   const catalog: Catalog = req.body?.catalog === 'test' || req.body?.catalog === 'prod' ? req.body.catalog : p.catalog;
   await sql('UPDATE people SET role = $1, active = $2, catalog = $3 WHERE id = $4', [role, active, catalog, id]);
-  if (req.body?.pin != null && req.body.pin !== '') {
+  if (wantsPinReset) {
     const pin = str(req.body.pin, 12);
     if (!validPin(pin)) return res.status(400).json({ error: 'The PIN must be 4 to 8 digits.' });
     await sql('UPDATE people SET pin_hash = $1, failed_count = 0, locked_until = NULL WHERE id = $2', [hashPin(pin), id]);
   }
+  // Anyone who is an admin can unlock someone who is locked out.
   if (req.body?.unlock === true) await sql('UPDATE people SET failed_count = 0, locked_until = NULL WHERE id = $1', [id]);
   // Deactivated people lose their sessions straight away.
   if (!active) await sql('DELETE FROM sessions WHERE person_id = $1', [id]);

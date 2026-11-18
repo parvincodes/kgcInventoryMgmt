@@ -38,6 +38,7 @@ export type Item = {
 export type Me = {
   name: string;
   role: 'admin' | 'reviewer';
+  owner: boolean;
   catalog: 'prod' | 'test';
   catalogLabel: string;
   testing: boolean;

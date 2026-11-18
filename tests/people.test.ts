@@ -3,6 +3,8 @@ import { checkPin, hashPin, normalizePhone, randomPin, validPin } from '../serve
 import { sql } from '../server/db.js';
 import { addItem, get, post, put, del, resetDb, serve, signIn, PROD, REVIEWER, TEST } from './helpers.js';
 
+const ADMIN2 = { phone: '202-555-0103', pin: '333444' };
+
 beforeAll(async () => {
   await serve.startServer();
 });
@@ -154,3 +156,78 @@ describe('roles', () => {
     expect(count).toBe(1);
   });
 });
+
+describe('owner rules', () => {
+  const idOf = async (admin: any, phone: string) => ((await get(admin, '/api/people')).body as any[]).find((p) => p.phone === normalizePhone(phone)).id;
+
+  it('says who the owner is when signed in', async () => {
+    expect((await get(await signIn(PROD), '/api/me')).body).toMatchObject({ owner: true });
+    expect((await get(await signIn(ADMIN2), '/api/me')).body).toMatchObject({ owner: false, role: 'admin' });
+  });
+
+  it('lets any admin add people and change roles, but not remove people or reset PINs', async () => {
+    const admin2 = await signIn(ADMIN2);
+    const reviewerId = await idOf(admin2, REVIEWER.phone);
+    expect((await put(admin2, `/api/people/${reviewerId}`, { role: 'admin' })).status).toBe(200);
+    expect((await put(admin2, `/api/people/${reviewerId}`, { role: 'reviewer' })).status).toBe(200);
+    expect((await post(admin2, '/api/people', { name: 'Helper', phone: '202-555-0111', role: 'reviewer', pin: '123123' })).status).toBe(200);
+  });
+
+  it('stops other admins from deactivating or resetting anyone, including other admins', async () => {
+    const admin2 = await signIn(ADMIN2);
+    const reviewerId = await idOf(admin2, REVIEWER.phone);
+    const ownerId = await idOf(admin2, PROD.phone);
+    expect((await put(admin2, `/api/people/${reviewerId}`, { active: false })).status).toBe(403);
+    expect((await put(admin2, `/api/people/${reviewerId}`, { pin: '999111' })).status).toBe(403);
+    expect((await put(admin2, `/api/people/${ownerId}`, { pin: '999111' })).status).toBe(403);
+    expect((await put(admin2, `/api/people/${ownerId}`, { active: false })).status).toBe(403);
+  });
+
+  it("stops anyone changing the owner's role", async () => {
+    const admin2 = await signIn(ADMIN2);
+    const ownerId = await idOf(admin2, PROD.phone);
+    expect((await put(admin2, `/api/people/${ownerId}`, { role: 'reviewer' })).status).toBe(400);
+  });
+
+  it('lets the owner deactivate, reactivate and reset PINs for others', async () => {
+    const owner = await signIn(PROD);
+    const id = await idOf(owner, REVIEWER.phone);
+    expect((await put(owner, `/api/people/${id}`, { active: false })).status).toBe(200);
+    expect((await put(owner, `/api/people/${id}`, { active: true })).status).toBe(200);
+    expect((await put(owner, `/api/people/${id}`, { pin: '775544' })).status).toBe(200);
+    expect((await post(null, '/api/login', { phone: REVIEWER.phone, pin: '775544' })).status).toBe(200);
+  });
+
+  it('lets an admin unlock someone who is locked out, but not reset their PIN', async () => {
+    for (let i = 0; i < 5; i++) await post(null, '/api/login', { phone: REVIEWER.phone, pin: '999999' });
+    const admin2 = await signIn(ADMIN2);
+    const id = await idOf(admin2, REVIEWER.phone);
+    expect((await put(admin2, `/api/people/${id}`, { unlock: true })).status).toBe(200);
+  });
+});
+
+describe('changing my own PIN', () => {
+  it('lets a signed-in person change their own PIN, after which the new one signs them in', async () => {
+    const r = await signIn(REVIEWER);
+    expect((await post(r, '/api/me/pin', { currentPin: REVIEWER.pin, newPin: '808080' })).status).toBe(200);
+    expect((await post(null, '/api/login', { phone: REVIEWER.phone, pin: REVIEWER.pin })).status).toBe(401);
+    expect((await post(null, '/api/login', { phone: REVIEWER.phone, pin: '808080' })).status).toBe(200);
+  });
+
+  it('needs the current PIN, and wrong tries count toward the lockout', async () => {
+    const r = await signIn(REVIEWER);
+    for (let i = 0; i < 5; i++) expect((await post(r, '/api/me/pin', { currentPin: '000000', newPin: '808080' })).status).toBe(401);
+    expect((await post(r, '/api/me/pin', { currentPin: REVIEWER.pin, newPin: '808080' })).status).toBe(429);
+  });
+
+  it('checks the new PIN is 4 to 8 digits and different from the old one', async () => {
+    const r = await signIn(REVIEWER);
+    expect((await post(r, '/api/me/pin', { currentPin: REVIEWER.pin, newPin: '12' })).status).toBe(400);
+    expect((await post(r, '/api/me/pin', { currentPin: REVIEWER.pin, newPin: REVIEWER.pin })).status).toBe(400);
+  });
+
+  it('refuses when not signed in', async () => {
+    expect((await post(null, '/api/me/pin', { currentPin: REVIEWER.pin, newPin: '808080' })).status).toBe(401);
+  });
+});
+

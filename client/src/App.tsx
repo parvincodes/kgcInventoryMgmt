@@ -10,6 +10,7 @@ import Catalog from './screens/Catalog';
 import ItemEdit from './screens/ItemEdit';
 import Scan from './screens/Scan';
 import People from './screens/People';
+import ChangePin from './screens/ChangePin';
 
 function ReviewerRoutes() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -27,7 +28,8 @@ function ReviewerRoutes() {
       <Route path="/catalog/new" element={<ItemEdit />} />
       <Route path="/catalog/:id" element={<ItemEdit />} />
       <Route path="/scan" element={<Scan />} />
-      <Route path="/people" element={me.role === 'admin' ? <People /> : <Navigate to="/" replace />} />
+      <Route path="/pin" element={<ChangePin />} />
+      <Route path="/people" element={me.role === 'admin' ? <People owner={me.owner} /> : <Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

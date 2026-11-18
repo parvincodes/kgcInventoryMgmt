@@ -105,6 +105,13 @@ export default function Home({ me, onSignOut }: { me: Me; onSignOut: () => void 
               <Chevron />
             </Link>
           )}
+          <Link to="/pin" className="nav-row">
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontWeight: 500 }}>Change my PIN</span>
+              <span className="muted">Choose a new PIN for signing in</span>
+            </span>
+            <Chevron />
+          </Link>
           <Link to="/scan" className="nav-row">
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontWeight: 500 }}>Add items by photo</span>

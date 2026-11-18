@@ -36,10 +36,10 @@ export function randomPin(): string {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
 }
 
-export async function addPerson(p: { name: string; phone: string; role: Role; catalog: Catalog; pin: string }) {
+export async function addPerson(p: { name: string; phone: string; role: Role; catalog: Catalog; pin: string; owner?: boolean }) {
   const r = await sql(
-    'INSERT INTO people (name, phone, role, catalog, pin_hash) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-    [p.name, p.phone, p.role, p.catalog, hashPin(p.pin)]
+    'INSERT INTO people (name, phone, role, catalog, pin_hash, owner) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+    [p.name, p.phone, p.role, p.catalog, hashPin(p.pin), p.owner ?? false]
   );
   return r.rows[0].id as number;
 }

@@ -10,13 +10,14 @@ type Person = {
   role: 'admin' | 'reviewer';
   catalog: 'prod' | 'test';
   active: boolean;
+  owner: boolean;
   locked: boolean;
 };
 
 type Form = { name: string; phone: string; role: 'admin' | 'reviewer'; catalog: 'prod' | 'test'; pin: string };
 const blank: Form = { name: '', phone: '', role: 'reviewer', catalog: 'prod', pin: '' };
 
-export default function People() {
+export default function People({ owner }: { owner: boolean }) {
   const nav = useNavigate();
   const [people, setPeople] = useState<Person[] | null>(null);
   const [form, setForm] = useState<Form>(blank);
@@ -67,7 +68,7 @@ export default function People() {
           <span style={{ width: 44 }} />
         </div>
         <h1>Who can sign in</h1>
-        <p className="muted">Each person has their own PIN. Deactivating someone signs them out straight away.</p>
+        <p className="muted">Each person has their own PIN. Only the owner can deactivate people or reset PINs. Deactivating someone signs them out straight away.</p>
       </div>
       <div className="body">
         {people.map((p) => (
@@ -79,20 +80,25 @@ export default function People() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0 10px' }}>
               <span className={`tag ${p.role === 'admin' ? 'info' : 'plain'}`}>{p.role === 'admin' ? 'Admin' : 'Reviewer'}</span>
               <span className="tag plain">{p.catalog === 'test' ? 'Testing' : 'Khalsa Gurmat School'}</span>
+              {p.owner && <span className="tag info">Owner</span>}
               {!p.active && <span className="tag low">Inactive</span>}
               {p.locked && <span className="tag low">Locked</span>}
             </div>
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 14 }}>
-              <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => save(p, { role: p.role === 'admin' ? 'reviewer' : 'admin' })}>
-                Make {p.role === 'admin' ? 'reviewer' : 'admin'}
-              </button>
-              <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => resetPin(p)}>Reset PIN</button>
+              {!p.owner && (
+                <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => save(p, { role: p.role === 'admin' ? 'reviewer' : 'admin' })}>
+                  Make {p.role === 'admin' ? 'reviewer' : 'admin'}
+                </button>
+              )}
+              {owner && <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => resetPin(p)}>Reset PIN</button>}
               {p.locked && (
                 <button type="button" className="link-btn" style={{ padding: 0 }} onClick={() => save(p, { unlock: true })}>Unlock</button>
               )}
-              <button type="button" className="link-btn" style={{ padding: 0, color: p.active ? 'var(--danger)' : 'inherit' }} onClick={() => save(p, { active: !p.active })}>
-                {p.active ? 'Deactivate' : 'Reactivate'}
-              </button>
+              {owner && !p.owner && (
+                <button type="button" className="link-btn" style={{ padding: 0, color: p.active ? 'var(--danger)' : 'inherit' }} onClick={() => save(p, { active: !p.active })}>
+                  {p.active ? 'Deactivate' : 'Reactivate'}
+                </button>
+              )}
             </div>
           </div>
         ))}
