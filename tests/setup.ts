@@ -21,6 +21,8 @@ await admin.query(`CREATE SCHEMA "${schema}"`);
 await admin.end();
 
 process.env.DATABASE_URL = url;
+// The tests always use their own database, even if DATABASE_TEST_URL is set for local runs.
+delete process.env.DATABASE_TEST_URL;
 process.env.PG_SCHEMA = schema;
 // Tests never call Claude. The photo-recognition suite opts in with RUN_PHOTO_TESTS=1.
 if (!process.env.RUN_PHOTO_TESTS) process.env.ANTHROPIC_API_KEY = '';

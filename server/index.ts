@@ -1,4 +1,8 @@
 import 'dotenv/config';
+
+// On your Mac, DATABASE_TEST_URL (if set) takes over from DATABASE_URL, so local runs use the local database.
+// Vercel sets VERCEL, so the hosted site always uses DATABASE_URL.
+if (!process.env.VERCEL && process.env.DATABASE_TEST_URL) process.env.DATABASE_URL = process.env.DATABASE_TEST_URL;
 import express, { NextFunction, Request, Response } from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
@@ -654,6 +658,9 @@ if (isMain) {
           .filter((n) => n && n.family === 'IPv4' && !n.internal)
           .map((n) => n!.address);
         console.log(`\nLangar Pantry is running.`);
+    const db = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
+    const local = db && ['localhost', '127.0.0.1'].includes(db.hostname);
+    console.log(`  Database:          ${local ? 'local' : 'hosted'} ${db ? db.pathname.replace('/', '') : '(not set)'}`);
         console.log(`  On this computer:  http://localhost:${PORT}`);
         for (const ip of ips) console.log(`  On your phone:     http://${ip}:${PORT}   (same Wi-Fi)`);
         console.log('  Sign-in: people on the allow list, each with a personal PIN.');

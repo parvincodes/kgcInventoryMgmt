@@ -77,7 +77,11 @@ export default function List({ role }: { role: 'admin' | 'reviewer' }) {
   const activeCount = lines.filter((l) => !l.removed).length;
   const sent = week.status === 'sent';
   const familyUrl = `${window.location.origin}/f/${week.shareToken}`;
-  const message = `Waheguru ji ka Khalsa, Waheguru ji ki Fateh. Here's your sewa list for ${weekendLabel(week.serviceDate)}: ${activeCount} items. Please check it before you shop: ${familyUrl}`;
+  const message = [
+    `Waheguru ji ka Khalsa, Waheguru ji ki Fateh. Here's your sewa list for ${weekendLabel(week.serviceDate)}: ${activeCount} items. Please check it before you shop: ${familyUrl}`,
+    'Places you can gather the items from: Indian Store / Punjab Trading / Costco / Restaurant Depot or US Chef Store. You can also get these elsewhere.',
+    'It will be great if you can also help in sewa on Saturday around 4pm & Sunday 8:30am.'
+  ].join('\n\n');
 
   async function copyLink() {
     try {
@@ -212,7 +216,7 @@ export default function List({ role }: { role: 'admin' | 'reviewer' }) {
           </>
         ) : (
           <>
-            <a className="btn" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">Share on WhatsApp</a>
+            <a className="btn" href={`https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">Share on WhatsApp</a>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn secondary" onClick={copyLink}>{copied ? 'Copied' : 'Copy message'}</button>
               <button className="btn secondary" onClick={() => nav(`/f/${week.shareToken}`)}>Family view</button>
