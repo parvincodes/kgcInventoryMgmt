@@ -88,4 +88,4 @@ export async function countAll(s: Session) {
   }
 }
 
-export const serve = { startServer, stopServer, resetDb };
+export const serve = { startServer, stopServer };

@@ -34,7 +34,7 @@ describe('refilling the inventory', () => {
     expect(atta.suggested).toBe(6); // target 10 - have 4
   });
 
-  it('takes a level item off the draft once it is refilled to Full', async () => {
+  it('takes a level item off the draft once it is refilled to Half, above the Low and Out line', async () => {
     expect(await names()).toContain('Ghee');
     await post(s, '/api/count/item/2', { level: 'Half' });
     expect(await names()).not.toContain('Ghee'); // Half is above the Low/Out line, so it comes off the draft

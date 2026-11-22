@@ -118,5 +118,10 @@ export async function refreshDraft(w: Week) {
 }
 
 export async function listLines(s: Sql, weekId: number): Promise<ListLine[]> {
-  return (await s('SELECT * FROM list_lines WHERE week_id = $1 ORDER BY one_off, lower(name)', [weekId])).rows as ListLine[];
+  return (
+    await s(
+      'SELECT l.*, i.store, i.brand FROM list_lines l LEFT JOIN items i ON i.id = l.item_id WHERE l.week_id = $1 ORDER BY l.one_off, lower(l.name)',
+      [weekId]
+    )
+  ).rows as ListLine[];
 }

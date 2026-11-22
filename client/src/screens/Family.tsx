@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api, fmtQty, Line, weekendLabel } from '../api';
 import { LangToggle, Loading, Stepper } from '../ui';
 import { productName, useLang } from '../lang';
+import { groupByStore } from '../groupByStore';
 
 type FamilyData = { serviceDate: string; note: string; lines: Line[]; testing?: boolean };
 
@@ -49,7 +50,10 @@ export default function Family() {
           </div>
         )}
         <p className="section">Please buy</p>
-        {data.lines.map((l) => {
+        {groupByStore(data.lines).map((g) => (
+          <div key={g.store ?? 'any'}>
+            <p className="section">{g.store ?? 'Any store'}</p>
+            {g.lines.map((l) => {
           const got = l.boughtQty ?? l.qty;
           return (
             <div key={l.id} className="row">
@@ -72,7 +76,9 @@ export default function Family() {
               {l.bought && <Stepper label={`${l.name} bought`} value={got} onChange={(v) => update(l, { boughtQty: v })} />}
             </div>
           );
-        })}
+            })}
+          </div>
+        ))}
         <p className="muted" style={{ marginTop: 24, lineHeight: 1.5 }}>
           Ticking items only lets the kitchen team know what you bought. They count the pantry again after langar.
         </p>

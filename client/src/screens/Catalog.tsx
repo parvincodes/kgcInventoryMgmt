@@ -62,7 +62,7 @@ export default function Catalog() {
                 {it.needsSetup && <span className="tag low">Set min/target</span>}
               </span>
               <span className="muted small">
-                {it.location} · {it.mode === 'lvl' ? 'level' : `${it.unit || 'units'}${it.min != null ? ` · min ${it.min}` : ''}${it.target != null ? ` · target ${it.target}` : ''}`}
+                {it.location}{it.store ? ` · ${it.store}` : ''}{it.brand ? ` · ${it.brand}` : ''} · {it.mode === 'lvl' ? 'level' : `${it.unit || 'units'}${it.min != null ? ` · min ${it.min}` : ''}${it.target != null ? ` · target ${it.target}` : ''}`}
                 {it.expiryDate ? ' · expiry' : ''}
               </span>
             </span>

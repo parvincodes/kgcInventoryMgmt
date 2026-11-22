@@ -100,6 +100,8 @@ function itemView(it: Item) {
     currentLevel: it.current_level,
     needsSetup: needsSetup(it),
     belowMin: isBelowMin(it),
+    store: it.store,
+    brand: it.brand,
     hasPhoto: !!it.has_photo
   };
 }
@@ -109,6 +111,8 @@ function lineView(l: ListLine) {
     itemId: l.item_id,
     name: l.name,
     namePa: punjabiName(l.name),
+    store: l.store ?? null,
+    brand: l.brand ?? null,
     unit: l.unit,
     reason: l.reason,
     suggested: l.suggested,
@@ -233,7 +237,9 @@ function readItemBody(b: any) {
     target: mode === 'num' ? num(b.target) : null,
     expiryDate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.expiryDate || '')) ? String(b.expiryDate) : null,
     currentNum: num(b.currentNum) ?? 0,
-    currentLevel: LEVELS.includes(b.currentLevel) ? b.currentLevel : 'Full'
+    currentLevel: LEVELS.includes(b.currentLevel) ? b.currentLevel : 'Full',
+    store: str(b.store, 60) || null,
+    brand: str(b.brand, 60) || null
   };
 }
 
@@ -241,9 +247,9 @@ app.post('/api/items', requireReviewer, route(async (req, res) => {
   const b = readItemBody(req.body ?? {});
   if (!b.name) return res.status(400).json({ error: 'Enter a name.' });
   const r = await sql(
-    `INSERT INTO items (catalog, name, location, unit, mode, min_qty, target_qty, expiry_date, current_num, current_level)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${ITEM_COLS}`,
-    [req.catalog, b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, b.currentNum, b.currentLevel]
+    `INSERT INTO items (catalog, name, location, unit, mode, min_qty, target_qty, expiry_date, current_num, current_level, store, brand)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING ${ITEM_COLS}`,
+    [req.catalog, b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, b.currentNum, b.currentLevel, b.store, b.brand]
   );
   res.json(itemView(r.rows[0] as Item));
 }));
@@ -255,9 +261,9 @@ app.put('/api/items/:id', requireReviewer, route(async (req, res) => {
   const b = readItemBody({ ...itemView(cur), ...req.body });
   if (!b.name) return res.status(400).json({ error: 'Enter a name.' });
   const r = await sql(
-    `UPDATE items SET name = $1, location = $2, unit = $3, mode = $4, min_qty = $5, target_qty = $6, expiry_date = $7, updated_at = now()
-     WHERE id = $8 AND catalog = $9 RETURNING ${ITEM_COLS}`,
-    [b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, id, req.catalog]
+    `UPDATE items SET name = $1, location = $2, unit = $3, mode = $4, min_qty = $5, target_qty = $6, expiry_date = $7, store = $8, brand = $9, updated_at = now()
+     WHERE id = $10 AND catalog = $11 RETURNING ${ITEM_COLS}`,
+    [b.name, b.location, b.unit, b.mode, b.min, b.target, b.expiryDate, b.store, b.brand, id, req.catalog]
   );
   res.json(itemView(r.rows[0] as Item));
 }));

@@ -146,6 +146,8 @@ CREATE TABLE IF NOT EXISTS people (
 );
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS person_id BIGINT REFERENCES people(id) ON DELETE CASCADE;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS owner BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS store TEXT;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS brand TEXT;
 `;
 
 /**
@@ -181,7 +183,7 @@ async function mergeDuplicateLines() {
 
 /** Columns for an item as the app reads them. The photo itself is left out, since it is large. */
 export const ITEM_COLS =
-  'id, catalog, name, location, unit, mode, min_qty, target_qty, over_bought, expiry_date, current_num, current_level, active, (photo IS NOT NULL) AS has_photo';
+  'id, catalog, name, location, unit, mode, min_qty, target_qty, over_bought, expiry_date, current_num, current_level, active, store, brand, (photo IS NOT NULL) AS has_photo';
 
 export type Item = {
   id: number;
@@ -197,6 +199,8 @@ export type Item = {
   current_num: number;
   current_level: 'Full' | 'Half' | 'Low' | 'Out';
   active: number;
+  store: string | null;
+  brand: string | null;
   has_photo: boolean;
 };
 
@@ -238,4 +242,6 @@ export type ListLine = {
   removed: number;
   bought: number;
   bought_qty: number | null;
+  store?: string | null;
+  brand?: string | null;
 };

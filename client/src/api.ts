@@ -30,6 +30,8 @@ export type Item = {
   currentLevel: 'Full' | 'Half' | 'Low' | 'Out';
   needsSetup: boolean;
   belowMin: boolean;
+  store: string | null;
+  brand: string | null;
   hasPhoto: boolean;
   counted?: boolean;
 };
@@ -66,6 +68,8 @@ export type Line = {
   itemId: number | null;
   name: string;
   namePa: string | null;
+  store: string | null;
+  brand: string | null;
   unit: string;
   reason: string;
   suggested: number;
