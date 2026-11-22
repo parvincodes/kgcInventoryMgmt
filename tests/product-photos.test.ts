@@ -46,8 +46,10 @@ describe('product photos', () => {
   it('replaces a photo when a new one is taken', async () => {
     const it = await addItem(prod, { name: 'Ghee', location: 'Shelves', mode: 'num' });
     await put(prod, `/api/items/${it.id}/photo`, { image: jpegUrl });
-    const again = await put(prod, `/api/items/${it.id}/photo`, { image: jpegUrl });
-    expect(again.body.hasPhoto).toBe(true);
+    const second = Buffer.concat([jpegBytes, Buffer.from([0x01, 0x02])]);
+    await put(prod, `/api/items/${it.id}/photo`, { image: `data:image/jpeg;base64,${second.toString('base64')}` });
+    const res = await fetch(`${baseUrl()}/api/items/${it.id}/photo`, { headers: { Cookie: prod.cookie } });
+    expect(Buffer.from(await res.arrayBuffer()).equals(second)).toBe(true);
   });
 
   it('removes a photo', async () => {

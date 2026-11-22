@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, fmtQty, Line, Week, weekendLabel } from '../api';
 import { Back, LangToggle, Loading, Stepper } from '../ui';
 import { productName, useLang } from '../lang';
+import { groupByStore } from '../groupByStore';
 
 type ListData = { week: Week; lines: Line[] };
 type Alert = { id: number; kind: string; detail: string };
@@ -139,14 +140,17 @@ export default function List({ role }: { role: 'admin' | 'reviewer' }) {
 
         <p className="section">Below minimum</p>
         {auto.length === 0 && <p className="muted" style={{ padding: '12px 0' }}>Nothing is below minimum.</p>}
-        {auto.map((l) => (
+        {groupByStore(auto).map((g) => (
+          <div key={g.store ?? 'any'}>
+            <p className="section">{g.store ?? 'Any store'}</p>
+            {g.lines.map((l) => (
           <div key={l.id} className={`row${l.removed ? ' dim' : ''}`}>
             <div className="grow">
               <span className="name">
                 {productName(l, lang)}
                 {!l.removed && l.qty !== l.suggested && <span className="tag info">Edited</span>}
               </span>
-              <span className="muted small">{l.removed ? 'Removed from this week' : `${l.reason} · suggested ${fmtQty(l.suggested)}`}</span>
+              <span className="muted small">{l.removed ? 'Removed from this week' : `${l.brand ? `${l.brand} · ` : ''}${l.reason} · suggested ${fmtQty(l.suggested)}`}</span>
             </div>
             {!l.removed && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
@@ -157,6 +161,8 @@ export default function List({ role }: { role: 'admin' | 'reviewer' }) {
             <button type="button" className="link-btn" style={{ fontSize: 13, color: 'var(--muted)', padding: '0 4px' }} onClick={() => patch(l.id, { removed: !l.removed })}>
               {l.removed ? 'Undo' : 'Remove'}
             </button>
+          </div>
+            ))}
           </div>
         ))}
 

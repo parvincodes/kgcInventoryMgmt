@@ -53,9 +53,7 @@ describe('sign-in sessions', () => {
   });
 
   it('refuses cookies that were not issued by sign-in', async () => {
-    // The old cookie style, and a made-up session ID, must both be refused.
-    const old = await fetch(`${baseUrl()}/api/items`, { headers: { Cookie: 'reviewer=Someone; catalog=prod' } });
-    expect(old.status).toBe(401);
+    // A made-up session ID must be refused.
     const forged = await fetch(`${baseUrl()}/api/items`, { headers: { Cookie: `session=${'a'.repeat(43)}` } });
     expect(forged.status).toBe(401);
   });

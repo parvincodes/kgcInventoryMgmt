@@ -29,7 +29,7 @@ if (!process.env.RUN_PHOTO_TESTS) process.env.ANTHROPIC_API_KEY = '';
 
 await migrate();
 
-// Three test accounts: a production admin, a production reviewer, and a testing admin.
+// Test accounts: production admins and reviewers, and a testing admin (see seed.ts).
 await seedPeople();
 
 afterAll(async () => {

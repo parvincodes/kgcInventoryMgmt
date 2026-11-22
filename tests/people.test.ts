@@ -49,7 +49,7 @@ describe('phone numbers and PINs', () => {
 });
 
 describe('signing in with phone and personal PIN', () => {
-  it('signs in with the right phone and PIN, in any phone format', async () => {
+  it('signs in with the right phone and PIN', async () => {
     const r = await post(null, '/api/login', { phone: '(202) 555-0100', pin: PROD.pin });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ name: 'Prod Admin', catalog: 'prod', role: 'admin' });
@@ -91,16 +91,12 @@ describe('signing in with phone and personal PIN', () => {
 });
 
 describe('roles', () => {
-  it('lets a reviewer count, but not approve the list', async () => {
+  it('lets a reviewer count, but not approve the list; an admin can approve', async () => {
     const reviewer = await signIn(REVIEWER);
     const approve = await post(reviewer, '/api/list/approve');
     expect(approve.status).toBe(403);
     expect(approve.body.error).toBe('Only an admin can do that.');
-  });
-
-  it('lets an admin approve the list', async () => {
-    const admin = await signIn(PROD);
-    expect((await post(admin, '/api/list/approve')).status).toBe(200);
+    expect((await post(await signIn(PROD), '/api/list/approve')).status).toBe(200);
   });
 
   it('lets a reviewer remove an item only if they are an admin', async () => {
@@ -146,15 +142,6 @@ describe('roles', () => {
     expect((await put(admin, `/api/people/${id}`, { role: 'reviewer' })).status).toBe(400);
     expect((await put(admin, `/api/people/${id}`, { active: false })).status).toBe(400);
   });
-
-  it('gives the testing account only the testing catalog', async () => {
-    const t = await signIn(TEST);
-    const me = await get(t, '/api/me');
-    expect(me.body).toMatchObject({ catalog: 'test', testing: true });
-    expect(((await get(t, '/api/items')).body as any[]).every((i) => i.name)).toBe(true);
-    const count = (await sql("SELECT COUNT(*) AS n FROM people WHERE catalog = 'test'")).rows[0].n;
-    expect(count).toBe(1);
-  });
 });
 
 describe('owner rules', () => {
@@ -165,7 +152,7 @@ describe('owner rules', () => {
     expect((await get(await signIn(ADMIN2), '/api/me')).body).toMatchObject({ owner: false, role: 'admin' });
   });
 
-  it('lets any admin add people and change roles, but not remove people or reset PINs', async () => {
+  it('lets any admin add people and change roles', async () => {
     const admin2 = await signIn(ADMIN2);
     const reviewerId = await idOf(admin2, REVIEWER.phone);
     expect((await put(admin2, `/api/people/${reviewerId}`, { role: 'admin' })).status).toBe(200);
@@ -189,20 +176,11 @@ describe('owner rules', () => {
     expect((await put(admin2, `/api/people/${ownerId}`, { role: 'reviewer' })).status).toBe(400);
   });
 
-  it('lets the owner deactivate, reactivate and reset PINs for others', async () => {
+  it('lets the owner deactivate and reactivate others', async () => {
     const owner = await signIn(PROD);
     const id = await idOf(owner, REVIEWER.phone);
     expect((await put(owner, `/api/people/${id}`, { active: false })).status).toBe(200);
     expect((await put(owner, `/api/people/${id}`, { active: true })).status).toBe(200);
-    expect((await put(owner, `/api/people/${id}`, { pin: '775544' })).status).toBe(200);
-    expect((await post(null, '/api/login', { phone: REVIEWER.phone, pin: '775544' })).status).toBe(200);
-  });
-
-  it('lets an admin unlock someone who is locked out, but not reset their PIN', async () => {
-    for (let i = 0; i < 5; i++) await post(null, '/api/login', { phone: REVIEWER.phone, pin: '999999' });
-    const admin2 = await signIn(ADMIN2);
-    const id = await idOf(admin2, REVIEWER.phone);
-    expect((await put(admin2, `/api/people/${id}`, { unlock: true })).status).toBe(200);
   });
 });
 

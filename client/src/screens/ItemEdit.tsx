@@ -7,6 +7,8 @@ import { toJpeg } from '../photo';
 type Form = {
   name: string;
   location: string;
+  store: string;
+  brand: string;
   unit: string;
   mode: 'num' | 'lvl';
   min: string;
@@ -17,7 +19,7 @@ type Form = {
 
 type Identified = { demo: boolean; name: string | null; unit: string; confidence: 'high' | 'low' };
 
-const empty: Form = { name: '', location: 'Shelves', unit: '', mode: 'num', min: '', target: '', trackExpiry: false, expiryDate: '' };
+const empty: Form = { name: '', location: 'Shelves', store: '', brand: '', unit: '', mode: 'num', min: '', target: '', trackExpiry: false, expiryDate: '' };
 
 export default function ItemEdit() {
   const { id } = useParams();
@@ -42,6 +44,8 @@ export default function ItemEdit() {
       setF({
         name: it.name,
         location: it.location,
+        store: it.store ?? '',
+        brand: it.brand ?? '',
         unit: it.unit,
         mode: it.mode,
         min: it.min == null ? '' : String(it.min),
@@ -175,6 +179,21 @@ export default function ItemEdit() {
           <select id="loc" className="input" value={f.location} onChange={(e) => set({ location: e.target.value })}>
             {LOCATIONS.map((l) => <option key={l}>{l}</option>)}
           </select>
+        </div>
+        <div className="field">
+          <label htmlFor="store">Where to buy</label>
+          <input id="store" className="input" list="stores" value={f.store} onChange={(e) => set({ store: e.target.value })} placeholder="Costco" />
+          <datalist id="stores">
+            <option value="Costco" />
+            <option value="Punjab Trading" />
+            <option value="US Chef Store" />
+            <option value="Indian Store" />
+            <option value="Restaurant Depot" />
+          </datalist>
+        </div>
+        <div className="field">
+          <label htmlFor="brand">Preferred brand</label>
+          <input id="brand" className="input" value={f.brand} onChange={(e) => set({ brand: e.target.value })} />
         </div>
         <div className="field">
           <span className="label">Count by</span>

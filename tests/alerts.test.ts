@@ -25,7 +25,8 @@ async function setUp() {
 describe('the same item on the list only once', () => {
   it('never lists an item twice, even when two drafts run at the same moment', async () => {
     const { admin } = await setUp();
-    await Promise.all([post(admin, '/api/list/redraft'), post(admin, '/api/list/redraft'), post(admin, '/api/list/redraft')]);
+    const results = await Promise.all([post(admin, '/api/list/redraft'), post(admin, '/api/list/redraft'), post(admin, '/api/list/redraft')]);
+    for (const r of results) expect(r.status).toBe(200);
     const lines = ((await get(admin, '/api/list')).body.lines as any[]).filter((l) => !l.oneOff);
     expect(lines.map((l) => l.name)).toEqual(['Atta']);
   });

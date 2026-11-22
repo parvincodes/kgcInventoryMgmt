@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { addItem, api, del, get, post, put, resetDb, serve, signIn, Session, TEST, PROD } from './helpers.js';
+import { addItem, del, get, post, put, resetDb, serve, signIn, Session, TEST, PROD } from './helpers.js';
 
 const tinyJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='; // content is irrelevant in demo mode
 
@@ -60,7 +60,7 @@ describe('building the catalog by hand', () => {
     expect(r.body.target).toBe(6);
   });
 
-  it('removes an item from the catalog without deleting its history', async () => {
+  it('hides a removed item from the catalog', async () => {
     const it = await addItem(prod, { name: 'Old jam', location: 'Shelves', mode: 'num', min: 1 });
     await del(prod, `/api/items/${it.id}`);
     const { body } = await get(prod, '/api/items');
@@ -80,6 +80,13 @@ describe('building the catalog by hand', () => {
     const items = (await get(prod, '/api/items')).body;
     expect(items.find((x: any) => x.name === 'Toor Dal').namePa).toBe('ਤੂਰ ਦਾਲ');
     expect(items.find((x: any) => x.name === 'Aashirvaad Atta').namePa).toBeNull();
+  });
+
+  it('keeps the store and preferred brand for each item', async () => {
+    const it = await addItem(prod, { name: 'Bagels', location: 'Shelves', mode: 'num', store: 'Costco', brand: 'Kirkland' });
+    expect(it).toMatchObject({ store: 'Costco', brand: 'Kirkland' });
+    const r = await put(prod, `/api/items/${it.id}`, { name: 'Bagels', store: 'US Chef Store', brand: '' });
+    expect(r.body).toMatchObject({ store: 'US Chef Store', brand: null });
   });
 
   it('requires sign-in', async () => {
@@ -104,7 +111,7 @@ describe('building the catalog with photo capture (demo mode, no Claude key)', (
 
   it('saves confirmed photo results as new items, with no minimum yet', async () => {
     const scan = await post(prod, '/api/scan', { location: 'Shelves', image: tinyJpeg });
-    const chosen = scan.body.results.slice(0, 2).map((x: any) => ({ ...x, count: x.count }));
+    const chosen = scan.body.results.slice(0, 2);
     const save = await post(prod, '/api/scan/save', { location: 'Shelves', items: chosen });
     expect(save.body).toEqual({ added: 2, updated: 0 });
 
