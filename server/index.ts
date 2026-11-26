@@ -322,6 +322,14 @@ app.post('/api/identify', requireReviewer, route(async (req, res) => {
   }
 }));
 
+// Admins remove several items at once. Each item is only hidden, so its history stays.
+app.post('/api/items/remove', requireAdmin, route(async (req, res) => {
+  const ids: number[] = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter((n: number) => Number.isInteger(n)) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Choose at least one item.' });
+  const r = await sql('UPDATE items SET active = 0, updated_at = now() WHERE catalog = $1 AND id = ANY($2) AND active = 1', [req.catalog, ids]);
+  res.json({ removed: r.rowCount ?? 0 });
+}));
+
 app.delete('/api/items/:id', requireAdmin, route(async (req, res) => {
   await sql('UPDATE items SET active = 0, updated_at = now() WHERE id = $1 AND catalog = $2', [Number(req.params.id), req.catalog]);
   res.json({ ok: true });
