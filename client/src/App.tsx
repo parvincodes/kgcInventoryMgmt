@@ -24,7 +24,7 @@ function ReviewerRoutes() {
       <Route path="/" element={<Home me={me} onSignOut={() => setMe(null)} />} />
       <Route path="/count" element={<Count />} />
       <Route path="/list" element={<List role={me.role} />} />
-      <Route path="/catalog" element={<Catalog />} />
+      <Route path="/catalog" element={<Catalog admin={me.role === 'admin'} />} />
       <Route path="/catalog/new" element={<ItemEdit />} />
       <Route path="/catalog/:id" element={<ItemEdit />} />
       <Route path="/scan" element={<Scan />} />

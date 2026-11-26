@@ -4,8 +4,10 @@ import { api, Item, LOCATIONS } from '../api';
 import { Back, CameraIcon, Chevron, LangToggle, Loading } from '../ui';
 import { productName, useLang } from '../lang';
 
-export default function Catalog() {
+export default function Catalog({ admin }: { admin: boolean }) {
   const lang = useLang();
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
   const [items, setItems] = useState<Item[] | null>(null);
   const [filter, setFilter] = useState<string>('All');
   const [q, setQ] = useState('');
@@ -14,6 +16,24 @@ export default function Catalog() {
   useEffect(() => {
     api<Item[]>('/api/items').then(setItems).catch((e) => setError(e.message));
   }, []);
+  function toggle(id: number) {
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  }
+  function endSelecting() {
+    setSelecting(false);
+    setPicked([]);
+  }
+  async function removePicked() {
+    if (!window.confirm(`Remove ${picked.length} item${picked.length === 1 ? '' : 's'} from the catalog? Their history is kept.`)) return;
+    try {
+      await api('/api/items/remove', { body: { ids: picked } });
+      setItems((xs) => xs!.filter((x) => !picked.includes(x.id)));
+      endSelecting();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
   if (!items) return error ? <div className="screen body"><p className="error">{error}</p></div> : <Loading />;
 
   const shown = items.filter(
@@ -27,6 +47,11 @@ export default function Catalog() {
           <Back />
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <LangToggle lang={lang} />
+            {admin && (
+              <button type="button" className="btn small secondary" onClick={() => (selecting ? endSelecting() : setSelecting(true))}>
+                {selecting ? 'Done' : 'Select'}
+              </button>
+            )}
             <Link to="/scan" className="btn small" style={{ textDecoration: 'none' }}>
               <CameraIcon /> Add by photo
             </Link>
@@ -50,7 +75,21 @@ export default function Catalog() {
           </div>
         )}
         {shown.map((it) => (
-          <Link key={it.id} to={`/catalog/${it.id}`} className="row" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link
+            key={it.id}
+            to={`/catalog/${it.id}`}
+            className="row"
+            style={{ textDecoration: 'none', color: 'inherit' }}
+            onClick={(e) => {
+              if (selecting) {
+                e.preventDefault();
+                toggle(it.id);
+              }
+            }}
+          >
+            {selecting && (
+              <span className={`check square navy${picked.includes(it.id) ? ' on' : ''}`} aria-hidden="true">{picked.includes(it.id) ? '✓' : ''}</span>
+            )}
             {it.hasPhoto ? (
               <img src={`/api/items/${it.id}/photo`} alt="" loading="lazy" style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
             ) : (
@@ -71,7 +110,16 @@ export default function Catalog() {
         ))}
       </div>
       <div className="footer">
-        <Link to="/catalog/new" className="btn">Add item</Link>
+        {selecting ? (
+          <>
+            <button type="button" className="btn" style={{ background: 'var(--danger)' }} disabled={picked.length === 0} onClick={removePicked}>
+              Remove {picked.length || ''} from catalog
+            </button>
+            <p className="muted small center">Tap items to choose them. Removed items are hidden, and their history is kept.</p>
+          </>
+        ) : (
+          <Link to="/catalog/new" className="btn">Add item</Link>
+        )}
       </div>
     </div>
   );

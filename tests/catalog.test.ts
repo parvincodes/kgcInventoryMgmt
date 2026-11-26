@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { addItem, del, get, post, put, resetDb, serve, signIn, Session, TEST, PROD } from './helpers.js';
+import { addItem, del, get, post, put, resetDb, serve, signIn, Session, TEST, PROD, REVIEWER } from './helpers.js';
 
 const tinyJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='; // content is irrelevant in demo mode
 
@@ -80,6 +80,27 @@ describe('building the catalog by hand', () => {
     const items = (await get(prod, '/api/items')).body;
     expect(items.find((x: any) => x.name === 'Toor Dal').namePa).toBe('ਤੂਰ ਦਾਲ');
     expect(items.find((x: any) => x.name === 'Aashirvaad Atta').namePa).toBeNull();
+  });
+
+  it('lets an admin remove several items at once, and a reviewer cannot', async () => {
+    const admin = await signIn(PROD);
+    const reviewer = await signIn(REVIEWER);
+    const a = await addItem(admin, { name: 'Salt', location: 'Kitchen', mode: 'num', min: 1 });
+    const b = await addItem(admin, { name: 'Pepper', location: 'Kitchen', mode: 'num', min: 1 });
+    await addItem(admin, { name: 'Oil', location: 'Kitchen', mode: 'num', min: 1 });
+    expect((await post(reviewer, '/api/items/remove', { ids: [a.id] })).status).toBe(403);
+    const r = await post(admin, '/api/items/remove', { ids: [a.id, b.id] });
+    expect(r.body.removed).toBe(2);
+    expect((await get(admin, '/api/items')).body.map((i: any) => i.name)).toEqual(['Oil']);
+    expect((await post(admin, '/api/items/remove', { ids: [] })).status).toBe(400);
+  });
+
+  it('cannot remove items from the other catalog', async () => {
+    const testAdmin = await signIn(TEST);
+    const prodItem = await addItem(await signIn(PROD), { name: 'Rice', location: 'Shelves', mode: 'num', min: 1 });
+    const r = await post(testAdmin, '/api/items/remove', { ids: [prodItem.id] });
+    expect(r.body.removed).toBe(0);
+    expect((await get(await signIn(PROD), '/api/items')).body.map((i: any) => i.name)).toContain('Rice');
   });
 
   it('keeps the store and preferred brand for each item', async () => {
